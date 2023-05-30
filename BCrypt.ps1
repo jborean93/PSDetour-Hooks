@@ -1,3 +1,51 @@
+New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptGenerateKeyPair {
+    [OutputType([int])]
+    param (
+        [IntPtr]$Algorithm,
+        [IntPtr]$Key,
+        [int]$Length,
+        [int]$Flags
+    )
+
+    $this.State.Writer.WriteLine(
+        'BCryptGenerateKeyPair(Algorithm: 0x{0:X8}, Key: 0x{1:X8}, Length: {2}, Flags: {3:X8}' -f (
+        $Algorithm, $Key, $Length, $Flags
+    ))
+
+    $res = $this.Invoke($Algorithm, $Key, $Length, $Flags)
+    $this.State.Writer.WriteLine('BCryptGenerateKeyPair -> Res: 0x{0:X8}' -f $res)
+    $this.State.Writer.WriteLine('')
+
+    $res
+}
+
+New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptGenRandom {
+    [OutputType([int])]
+    param (
+        [IntPtr]$Algorithm,
+        [IntPtr]$Buffer,
+        [int]$BufferLength,
+        [int]$Flags
+    )
+
+    $this.State.Writer.WriteLine(
+        'BCryptGenRandom(Algorithm: 0x{0:X8}, Buffer: 0x{1:X8}, BufferLength: {2}, Flags: {3:X8}' -f (
+        $Algorithm, $Buffer, $BufferLength, $Flags
+    ))
+
+    $res = $this.Invoke($Algorithm, $Buffer, $BufferLength, $Flags)
+
+    $bufferBytes = [byte[]]::new($BufferLength)
+    [System.Runtime.InteropServices.Marshal]::Copy($Buffer, $bufferBytes, 0, $bufferBytes.Length)
+    $this.State.Writer.WriteLine('BCryptGenRandom -> Res: 0x{0:X8}, Buffer: {1}' -f (
+        $res,
+        [System.Convert]::ToHexString($bufferBytes)
+    ))
+    $this.State.Writer.WriteLine('')
+
+    $res
+}
+
 New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptGenerateSymmetricKey {
     [OutputType([int])]
     param (
