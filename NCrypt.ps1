@@ -58,15 +58,19 @@ New-PSDetourHook -DllName ncrypt.dll -MethodName NCryptUnprotectKey {
 
     #>
 
-    Write-Host ('NCryptUnprotectKey(Descriptor: 0x{0:X8}, 0x{1:X8}, MemAllocFunc: 0x{2:X8}, Window: 0x{3:X8}, Data: 0x{4:X8}, DataLength: 0x{5:X8}, Flags: 0x{6:X8})' -f (
+    $this.State.WriteLine(
+        'NCryptUnprotectKey(Descriptor: 0x{0:X8}, 0x{1:X8}, MemAllocFunc: 0x{2:X8}, Window: 0x{3:X8}, Data: 0x{4:X8}, DataLength: 0x{5:X8}, Flags: 0x{6:X8})',
         $Descriptor, $Unknown2, $MemPara, $Window, $Data, $DataLength, $Flags
-    ))
+    )
     $res = $this.Invoke($Descriptor, $Unknown2, $MemPara, $Window, $Data, $DataLength, $Flags)
 
     $returnLength = [System.Runtime.InteropServices.Marshal]::ReadInt32($DataLength)
     $returnData = [byte[]]::new($returnLength)
     $returnDataPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Data)
     [System.Runtime.InteropServices.Marshal]::Copy($returnDataPtr, $returnData, 0, $returnData.Length)
-    Write-Host ('NCryptUnprotectKey -> Result: 0x{0:X8} CEK: {1}' -f $res, [Convert]::ToHexString($returnData))
+
+    $this.State.WriteLine('NCryptUnprotectKey -> Result: 0x{0:X8} CEK: {1}', $res, [Convert]::ToHexString($returnData))
+    $this.State.WriteLine()
+
     $res
 }

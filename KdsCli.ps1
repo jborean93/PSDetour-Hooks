@@ -1,9 +1,3 @@
-$kdscli = [System.Runtime.InteropServices.NativeLibrary]::Load("$env:SystemRoot\System32\KdsCli.dll")
-$CNG_AesKeyUnwrap = [IntPtr]::Add($kdsCli, 0xD530)
-$GetSpecifiedKey = [IntPtr]::Add($kdsCli, 0xFB94)
-$GetSIDKeyFileName = [IntPtr]::Add($kdsCli, 0x6B60)
-$GenerateSIDKey = [IntPTr]::Add($kdsCli, 0xF0D4)
-
 New-PSDetourHook -DllName KdsCli.dll -MethodName SIDKeyUnprotect {
     [OutputType([Int64])]
     param (
@@ -102,10 +96,10 @@ New-PSDetourHook -DllName KdsCli.dll -MethodName SIDKeyUnprotect {
     } DPAPI_CTX, *PDPAPI_CTX;
     #>
 
-    $this.State.Writer.WriteLine(
-        'SIDKeyUnprotect(KeyRequest: 0x{0:X8}, DpapiCtx: 0x{1:X8}, Data: 0x{2:X8}, DataLength: 0x{3:X8}, Flags: 0x{4:X8})' -f (
+    $this.State.WriteLine(
+        'SIDKeyUnprotect(KeyRequest: 0x{0:X8}, DpapiCtx: 0x{1:X8}, Data: 0x{2:X8}, DataLength: 0x{3:X8}, Flags: 0x{4:X8})',
         $KeyRequest, $DpapiContext, $Data, $DataLength, $Flags
-    ))
+    )
     $res = $this.Invoke($KeyRequest, $DpapiContext, $Data, $DataLength, $Flags)
 
     $cekLength = [System.Runtime.InteropServices.Marshal]::ReadInt32($DataLength)
@@ -113,13 +107,15 @@ New-PSDetourHook -DllName KdsCli.dll -MethodName SIDKeyUnprotect {
     $returnDataPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Data)
     [System.Runtime.InteropServices.Marshal]::Copy($returnDataPtr, $cek, 0, $cek.Length)
 
-    $this.State.Writer.WriteLine('SIDKeyUnprotect -> Res: 0x{0:X8}, CEK: {1}' -f (
+    $this.State.WriteLine('SIDKeyUnprotect -> Res: 0x{0:X8}, CEK: {1}',
         $res, [System.Convert]::ToHexString($cek)
-    ))
+    )
+    $this.State.WriteLine()
+
     $res
 }
 
-New-PSDetourHook -Address $CNG_AesKeyUnwrap {
+New-PSDetourHook -DllName KdsCli.dll -MethodName CNG_AesKeyUnwrap -Address 0xD530 -AddressIsoffset {
     [OutputType([Int64])]
     param (
         [IntPtr]$EncryptedData,
@@ -136,12 +132,12 @@ New-PSDetourHook -Address $CNG_AesKeyUnwrap {
     $secretBytes = [byte[]]::new(32)
     [System.Runtime.InteropServices.Marshal]::Copy($Key, $secretBytes, 0, $secretBytes.Length)
 
-    $this.State.Writer.WriteLine(
-        'CNG_AesKeyUnwrap(EncryptedData: 0x{0:X8}, EncryptedDataLength: {1}, Key: 0x{2:X8}, 0x{3:X8}, OutData: 0x{4:X8}, OutDataLengh: 0x{5:X8}) - EncryptedCek: {6} Secret: {7}' -f (
+    $this.State.WriteLine(
+        'CNG_AesKeyUnwrap(EncryptedData: 0x{0:X8}, EncryptedDataLength: {1}, Key: 0x{2:X8}, 0x{3:X8}, OutData: 0x{4:X8}, OutDataLengh: 0x{5:X8}) - EncryptedCek: {6} Secret: {7}',
         $EncryptedData, $EncryptedDataLength, $Key, $Unknown, $OutData, $OutDataLength,
         [System.Convert]::ToHexString($encryptedCekBytes),
         [System.Convert]::ToHexString($secretBytes)
-    ))
+    )
     $res = $this.Invoke($EncryptedData, $EncryptedDataLength, $Key, $Unknown, $OutData, $OutDataLength)
 
     $cekLength = [System.Runtime.InteropServices.Marshal]::ReadInt32($OutDataLength)
@@ -149,14 +145,15 @@ New-PSDetourHook -Address $CNG_AesKeyUnwrap {
     $cekPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($OutData)
     [System.Runtime.InteropServices.Marshal]::Copy($cekPtr, $cek, 0, $cek.Length)
 
-    $this.State.Writer.WriteLine('CNG_AesKeyUnwrap -> Res: 0x{0:X8}, CEK: {1} 0x{2:X8}' -f (
+    $this.State.WriteLine('CNG_AesKeyUnwrap -> Res: 0x{0:X8}, CEK: {1} 0x{2:X8}' -f (
         $res, [System.Convert]::ToHexString($cek), $Unknown
     ))
+    $this.State.WriteLine()
 
     $res
 }
 
-New-PSDetourHook -Address $GetSIDKeyFileName {
+New-PSDetourHook -DllName KdsCli.dll -MethodName GetSIDKeyFileName -Address 0x6B60 -AddressIsOffset {
     [OutputType([Int64])]
     param (
         [IntPtr]$Unknown1,
@@ -166,24 +163,24 @@ New-PSDetourHook -Address $GetSIDKeyFileName {
         [IntPtr]$Unknown5
     )
 
-    $this.State.Writer.WriteLine(
-        'GetSIDKeyFileName(0x{0:X8}, {1}, {2}, 0x{3:X8}, 0x{4:X8})' -f (
+    $this.State.WriteLine(
+        'GetSIDKeyFileName(0x{0:X8}, {1}, {2}, 0x{3:X8}, 0x{4:X8})',
         $Unknown1, $Unknown2, $Unknown3, $Unknown4, $Unknown5
-    ))
+    )
     $res = $this.Invoke($Unknown1, $Unknown2, $Unknown3, $Unknown4, $Unknown5)
 
     $pathPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Unknown5)
     $path = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($pathPtr)
 
-    $this.State.Writer.WriteLine('GetSIDKeyFileName -> Res: 0x{0:X8} Path: {1}' -f (
+    $this.State.WriteLine('GetSIDKeyFileName -> Res: 0x{0:X8} Path: {1}',
         $res, $path
-    ))
-    # $null = $this.State.Waiter.ReadByte()
+    )
+    $this.State.WriteLine()
 
     $res
 }
 
-New-PSDetourHook -Address $GenerateSIDKey {
+New-PSDetourHook -DllName KdsCli.dll -MethodName GenerateSIDKey -Address 0xF0D4 -AddressIsOffset {
     [OutputType([Int64])]
     param (
         [IntPtr]$GroupKeyEnvelope,
@@ -218,20 +215,20 @@ New-PSDetourHook -Address $GenerateSIDKey {
     } GROUP_KEY_ENVELOPE, *PGROUP_KEY_ENVELOPE;
     #>
 
-    $this.State.Writer.WriteLine(
-        'GenerateSIDKey(GroupKeyEnvelope: 0x{0:X8}, GKELength: {1}, PasswordId: 0x{2:X8}, {3}, 0x{4:X8}, 0x{5:X8}, 0x{6:X8})' -f (
+    $this.State.WriteLine(
+        'GenerateSIDKey(GroupKeyEnvelope: 0x{0:X8}, GKELength: {1}, PasswordId: 0x{2:X8}, {3}, 0x{4:X8}, 0x{5:X8}, 0x{6:X8})',
         $GroupKeyEnvelope, $GKELength, $PasswordId, $Unknown4, $Unknown5, $Unknown6, $OutData
-    ))
+    )
     $res = $this.Invoke($GroupKeyEnvelope, $GKELength, $PasswordId, $Unknown4, $Unknown5, $Unknown6, $OutData)
 
     $kek = [byte[]]::new(32)
     [System.Runtime.InteropServices.Marshal]::Copy($OutData, $kek, 0, $kek.Length)
 
-    $this.State.Writer.WriteLine('GenerateSIDKey -> Res: 0x{0:X8}, KEK: {1}' -f (
+    $this.State.WriteLine('GenerateSIDKey -> Res: 0x{0:X8}, KEK: {1}',
         $res,
         [System.Convert]::ToHexString($kek)
-    ))
-    $null = $this.State.Waiter.ReadByte()
+    )
+    $this.State.WriteLine()
 
     $res
 }
