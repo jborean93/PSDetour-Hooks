@@ -98,23 +98,21 @@ New-PSDetourHook -DllName Secur32.dll -MethodName InitializeSecurityContextW {
         $targetNameStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($TargetName)
     }
 
-    $this.State.WriteLine(
-        'InitializeSecurityContext(Credential: 0x{0:X8}, Context: 0x{1:X8}, TargetName: 0x{2:X8}, ContextReq: 0x{3:X8}, Reserved1: 0x{4:X8}, TargetDataRep: 0x{5:X8}, Input: 0x{6:X8}, Reserved2: 0x{7:X8}, NewContext: 0x{8:X8}, Output: 0x{9:X8}, ContextAttr: 0x{10:X8}, Expiry: 0x{11:X8})',
+    $this.State.WriteObject(
+        'InitializeSecurityContext(Credential: 0x{0:X8}, Context: 0x{1:X8}, TargetName: 0x{2:X8}, ContextReq: 0x{3:X8}, Reserved1: 0x{4:X8}, TargetDataRep: 0x{5:X8}, Input: 0x{6:X8}, Reserved2: 0x{7:X8}, NewContext: 0x{8:X8}, Output: 0x{9:X8}, ContextAttr: 0x{10:X8}, Expiry: 0x{11:X8})' -f @(
         $Credential, $Context, $TargetName, $ContextReq, $Reserved1, $TargetDataRep, $InputBuffer, $Reserved2,
         $NewContext, $OutputBuffer, $ContextAttr, $Expiry
-    )
-    $this.State.WriteLine("`tTargetName: $targetNameStr")
-    Format-SecBufferDesc -BufferDesc $InputBuffer | ForEach-Object { $this.State.WriteLine($_) }
+    ))
+    $this.State.WriteObject("`tTargetName: $targetNameStr")
+    Format-SecBufferDesc -BufferDesc $InputBuffer | ForEach-Object { $this.State.WriteObject($_) }
 
     $res = $this.Invoke($Credential, $Context, $TargetName, $ContextReq, $Reserved1, $TargetDataRep, $InputBuffer, $Reserved2,
         $NewContext, $OutputBuffer, $ContextAttr, $Expiry)
 
-    $this.State.WriteLine(
-        'InitializeSecurityContextW -> Res: 0x{0:X8}', $res)
+    $this.State.WriteObject('InitializeSecurityContextW -> Res: 0x{0:X8}' -f $res)
     $contextAttrValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($ContextAttr)
-    $this.State.WriteLine("`tContextAttr: 0x{0:X8}", $contextAttrValue)
-    Format-SecBufferDesc -BufferDesc $OutputBuffer | ForEach-Object { $this.State.WriteLine($_) }
-    $this.State.WriteLine()
+    $this.State.WriteObject("`tContextAttr: 0x{0:X8}" -f $contextAttrValue)
+    Format-SecBufferDesc -BufferDesc $OutputBuffer | ForEach-Object { $this.State.WriteObject($_) }
 
     $res
 }
@@ -139,16 +137,15 @@ New-PSDetourHook -DllName Secur32.dll -MethodName EncryptMessage {
 
     Set-Item -Path Function:Format-SecBufferDesc -Value $this.State.GetFunction("Format-SecBufferDesc")
 
-    $this.State.WriteLine('EncryptMessage(Context: 0x{0:X8}, Qop: {1}, Message: 0x{2:X8}, SeqNo: {3})',
+    $this.State.WriteObject('EncryptMessage(Context: 0x{0:X8}, Qop: {1}, Message: 0x{2:X8}, SeqNo: {3})' -f @(
         $Context, $Qop, $Message, $SeqNo
-    )
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteLine($_) }
+    ))
+    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
 
     $res = $this.Invoke($Context, $Qop, $Message, $SeqNo)
 
-    $this.State.WriteLine('EncryptMessage -> Res: 0x{0:X8}', $res)
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteLine($_) }
-    $this.State.WriteLine()
+    $this.State.WriteObject('EncryptMessage -> Res: 0x{0:X8}' -f $res)
+    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
 
     $res
 }
@@ -173,20 +170,19 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
 
     Set-Item -Path Function:Format-SecBufferDesc -Value $this.State.GetFunction("Format-SecBufferDesc")
 
-    $this.State.WriteLine('DecryptMessage(Context: 0x{0:X8}, Message: 0x{1:X8}, SeqNo: {2}, Qop: 0x{3:X8})',
+    $this.State.WriteObject('DecryptMessage(Context: 0x{0:X8}, Message: 0x{1:X8}, SeqNo: {2}, Qop: 0x{3:X8})' -f @(
         $Context, $Message, $SeqNo, $Qop
-    )
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteLine($_) }
+    ))
+    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
 
     $res = $this.Invoke($Context, $Message, $SeqNo, $Qop)
 
     $qopValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
 
-    $this.State.WriteLine('DecryptMessage -> Res: 0x{0:X8}, Qop: {1}',
+    $this.State.WriteObject('DecryptMessage -> Res: 0x{0:X8}, Qop: {1}' -f @(
         $res, $qopValue
-    )
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteLine($_) }
-    $this.State.WriteLine()
+    ))
+    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
 
     $res
 }

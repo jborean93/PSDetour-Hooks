@@ -4,10 +4,9 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName GetProcessId {
         [IntPtr]$Process
     )
 
-    $this.State.WriteLine('GetProcessId(Process: 0x{0:X8})', $Process)
+    $this.State.WriteObject('GetProcessId(Process: 0x{0:X8})' -f $Process)
     $res = $this.Invoke($Process)
-    $this.State.WriteLine('GetProcessId - Return: 0x{0:X8}', $res)
-    $this.State.WriteLine()
+    $this.State.WriteObject('GetProcessId - Return: 0x{0:X8}' -f $res)
 
     $res
 }
@@ -20,11 +19,10 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName OpenProcess {
         [int]$ProcessId
     )
 
-    $this.State.WriteLine('OpenProcess(DesiredAccess: 0x{0:X8}, InheritHandle: {1}, ProcessId: {2})',
-        $DesiredAccess, $InheritHandle, $ProcessId)
+    $this.State.WriteObject('OpenProcess(DesiredAccess: 0x{0:X8}, InheritHandle: {1}, ProcessId: {2})' -f @(
+        $DesiredAccess, $InheritHandle, $ProcessId))
     $res = $this.Invoke($DesiredAccess, $InheritHandle, $ProcessId)
-    $this.State.WriteLine('OpenProcess - Return: 0x{0:X8}', $res)
-    $this.State.WriteLine()
+    $this.State.WriteObject('OpenProcess - Return: 0x{0:X8}' -f $res)
 
     $res
 }

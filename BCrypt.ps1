@@ -71,14 +71,13 @@ New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptGenerateKeyPair {
         [int]$Flags
     )
 
-    $this.State.WriteLine(
-        'BCryptGenerateKeyPair(Algorithm: 0x{0:X8}, Key: 0x{1:X8}, Length: {2}, Flags: {3:X8}',
+    $this.State.WriteObject(
+        'BCryptGenerateKeyPair(Algorithm: 0x{0:X8}, Key: 0x{1:X8}, Length: {2}, Flags: {3:X8}' -f @(
         $Algorithm, $Key, $Length, $Flags
-    )
+    ))
 
     $res = $this.Invoke($Algorithm, $Key, $Length, $Flags)
-    $this.State.WriteLine('BCryptGenerateKeyPair -> Res: 0x{0:X8}' -f $res)
-    $this.State.WriteLine()
+    $this.State.WriteObject('BCryptGenerateKeyPair -> Res: 0x{0:X8}' -f $res)
 
     $res
 }
@@ -92,20 +91,19 @@ New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptGenRandom {
         [int]$Flags
     )
 
-    $this.State.WriteLine(
-        'BCryptGenRandom(Algorithm: 0x{0:X8}, Buffer: 0x{1:X8}, BufferLength: {2}, Flags: {3:X8}',
+    $this.State.WriteObject(
+        'BCryptGenRandom(Algorithm: 0x{0:X8}, Buffer: 0x{1:X8}, BufferLength: {2}, Flags: {3:X8}' -f @(
         $Algorithm, $Buffer, $BufferLength, $Flags
-    )
+    ))
 
     $res = $this.Invoke($Algorithm, $Buffer, $BufferLength, $Flags)
 
     $bufferBytes = [byte[]]::new($BufferLength)
     [System.Runtime.InteropServices.Marshal]::Copy($Buffer, $bufferBytes, 0, $bufferBytes.Length)
-    $this.State.WriteLine('BCryptGenRandom -> Res: 0x{0:X8}, Buffer: {1}',
+    $this.State.WriteObject('BCryptGenRandom -> Res: 0x{0:X8}, Buffer: {1}' -f @(
         $res,
         [System.Convert]::ToHexString($bufferBytes)
-    )
-    $this.State.WriteLine()
+    ))
 
     $res
 }
@@ -129,17 +127,14 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptGenerateSymmetricKey {
     $secretBytes = [byte[]]::new($SecretLength)
     [System.Runtime.InteropServices.Marshal]::Copy($Secret, $secretBytes, 0, $secretBytes.Length)
 
-    $this.State.WriteLine(
-        "BCryptGenerateSymmetricKey(Algorithm: 0x{0:X8}, Key: 0x{1:X8}, KeyObject: 0x{2:X8}, KeyObjectLength: 0x{3:X8}, Secret: 0x{4:X8}, SecretLength: {5}, Flags: 0x{6:X8})`n`tSecret: {7}",
+    $this.State.WriteObject(
+        "BCryptGenerateSymmetricKey(Algorithm: 0x{0:X8}, Key: 0x{1:X8}, KeyObject: 0x{2:X8}, KeyObjectLength: 0x{3:X8}, Secret: 0x{4:X8}, SecretLength: {5}, Flags: 0x{6:X8})`n`tSecret: {7}" -f @(
         $Algorithm, $Key, $KeyObject, $KeyObjectLength, $Secret, $SecretLength, $Flags,
         [System.Convert]::ToHexString($secretBytes)
-    )
+    ))
 
     $res = $this.Invoke($Algorithm, $Key, $KeyObject, $KeyObjectLength, $Secret, $SecretLength, $Flags)
-    $this.State.WriteLine('BCryptGenerateSymmetricKey -> Res: 0x{0:X8}',
-        $res
-    )
-    $this.State.WriteLine()
+    $this.State.WriteObject('BCryptGenerateSymmetricKey -> Res: 0x{0:X8}' -f $res)
 
     $res
 }
@@ -157,12 +152,12 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptKeyDerivation {
 
     Set-Item -Path Function:Format-BCryptBufferDesc -Value $this.State.GetFunction("Format-BCryptBufferDesc")
 
-    $this.State.WriteLine(
-        'BCryptKeyDerivation(Key: 0x{0:X8}, ParameterList: 0x{1:X8}, DerivedKey: 0x{2:X8}, DerivedKeyLength: {3}, OutKeyLength: 0x{4:X8}, Flags: 0x{5:X8})',
+    $this.State.WriteObject(
+        'BCryptKeyDerivation(Key: 0x{0:X8}, ParameterList: 0x{1:X8}, DerivedKey: 0x{2:X8}, DerivedKeyLength: {3}, OutKeyLength: 0x{4:X8}, Flags: 0x{5:X8})' -f @(
         $Key, $ParameterList, $DerivedKey, $DerivedKeyLength, $OutKeyLength, $Flags
-    )
+    ))
 
-    Format-BCryptBufferDesc $ParameterList | ForEach-Object { $this.State.WriteLine($_) }
+    Format-BCryptBufferDesc $ParameterList | ForEach-Object { $this.State.WriteObject($_) }
 
     $res = $this.Invoke($Key, $ParameterList, $DerivedKey, $DerivedKeyLength, $OutKeyLength, $Flags)
 
@@ -170,11 +165,10 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptKeyDerivation {
     $keyData = [byte[]]::new($keyLength)
     [System.Runtime.InteropServices.Marshal]::Copy($DerivedKey, $keyData, 0, $keyData.Length)
 
-    $this.State.WriteLine('BCryptKeyDerivation -> Res: 0x{0:X8}, Derived: {1}',
+    $this.State.WriteObject('BCryptKeyDerivation -> Res: 0x{0:X8}, Derived: {1}' -f @(
         $res,
         [System.Convert]::ToHexString($keyData)
-    )
-    $this.State.WriteLine()
+    ))
 
     $res
 }
@@ -188,10 +182,10 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptSecretAgreement {
         [int]$Flags
     )
 
-    $this.State.WriteLine(
-        'BCryptSecretAgreement(PrivKey: 0x{0:X8}, PubKey: 0x{1:X8}, AgreedSecret: 0x{2:X8}, Flags: 0x{3:X8})',
+    $this.State.WriteObject(
+        'BCryptSecretAgreement(PrivKey: 0x{0:X8}, PubKey: 0x{1:X8}, AgreedSecret: 0x{2:X8}, Flags: 0x{3:X8})' -f @(
         $PrivKey, $PubKey, $AgreedSecret, $Flags
-    )
+    ))
     $res = $this.Invoke($PrivKey, $PubKey, $AgreedSecret, $Flags)
 
     $secretPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($AgreedSecret)
@@ -260,11 +254,10 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptSecretAgreement {
         }
     }
 
-    $this.State.WriteLine('BCryptSecretAgreement -> Res: 0x{0:X8}, AgreedSecret: 0x{1:X8}, Secret: {2}',
+    $this.State.WriteObject('BCryptSecretAgreement -> Res: 0x{0:X8}, AgreedSecret: 0x{1:X8}, Secret: {2}' -f @(
         $res, $secretPtr,
         ([System.Convert]::ToHexString($secret))
-    )
-    $this.State.WriteLine()
+    ))
 
     $res
 }
@@ -288,12 +281,12 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptDeriveKey  {
         $kdfAlgoStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($KdfAlgorithm)
     }
 
-    $this.State.WriteLine(
-        'BCryptDeriveKey(SharedSecret: 0x{0:X8}, KdfAlgorithm: ''{1}'', ParameterList: 0x{2:X8}, DerivedKey: 0x{3:X8}, DerivedKeyLength: {4}, OutKeyLength: 0x{5:X8}, Flags: 0x{6:X8})',
+    $this.State.WriteObject(
+        'BCryptDeriveKey(SharedSecret: 0x{0:X8}, KdfAlgorithm: ''{1}'', ParameterList: 0x{2:X8}, DerivedKey: 0x{3:X8}, DerivedKeyLength: {4}, OutKeyLength: 0x{5:X8}, Flags: 0x{6:X8})' -f @(
         $SharedSecret, $kdfAlgoStr, $ParameterList, $DerivedKey, $DerivedKeyLength, $OutKeyLength, $Flags
-    )
+    ))
 
-    Format-BCryptBufferDesc $ParameterList | ForEach-Object { $this.State.WriteLine($_) }
+    Format-BCryptBufferDesc $ParameterList | ForEach-Object { $this.State.WriteObject($_) }
 
     $res = $this.Invoke($SharedSecret, $KdfAlgorithm, $ParameterList, $DerivedKey, $DerivedKeyLength, $OutKeyLength, $Flags)
 
@@ -303,11 +296,10 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptDeriveKey  {
         [System.Runtime.InteropServices.Marshal]::Copy($DerivedKey, $keyData, 0, $keyData.Length)
     }
 
-    $this.State.WriteLine('BCryptDeriveKey -> Res: 0x{0:X8}, Derived: {1}'.
+    $this.State.WriteObject('BCryptDeriveKey -> Res: 0x{0:X8}, Derived: {1}' -f @(
         $res,
         [System.Convert]::ToHexString($keyData)
-    )
-    $this.State.WriteLine()
+    ))
 
     $res
 }
@@ -328,15 +320,14 @@ New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptSetProperty {
     if ($Property -ne [IntPtr]::Zero) {
         $propertyStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Property)
     }
-    $this.State.WriteLine(
-        'BCryptSetProperty(Object: 0x{0:X8}, Property: 0x{1:X8}, InputData: 0x{2:X8}, InputLength: {3}, Flags: 0x{4:X8}',
+    $this.State.WriteObject(
+        'BCryptSetProperty(Object: 0x{0:X8}, Property: 0x{1:X8}, InputData: 0x{2:X8}, InputLength: {3}, Flags: 0x{4:X8}' -f @(
         $Object, $Property, $InputData, $InputLength, $Flags
-    )
-    $this.State.WriteLine("`tProperty: '$propertyStr', InputData: $([System.Convert]::ToHexString($inputBytes))")
+    ))
+    $this.State.WriteObject("`tProperty: '$propertyStr', InputData: $([System.Convert]::ToHexString($inputBytes))")
 
     $res = $this.Invoke($Object, $Property, $InputData, $InputLength, $Flags)
-    $this.State.WriteLine('BCryptSetProperty -> Res: 0x{0:X8}', $res)
-    $this.State.WriteLine()
+    $this.State.WriteObject('BCryptSetProperty -> Res: 0x{0:X8}' -f $res)
 
     $res
 }
@@ -359,18 +350,17 @@ New-PSDetourHook -DllName Bcrypt.dll -MethodName BCryptImportKeyPair {
     if ($BlobType -ne [IntPtr]::Zero) {
         $blobTypeStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($BlobType)
     }
-    $this.State.WriteLine(
-        'BCryptImportKeyPair(Algorithm: 0x{0:X8}, ImportKey: 0x{1:X8}, BlobType: 0x{2:X8}, OutKey: 0x{3:X8}, InputData: 0x{4:X8}, InputLength: {5}, Flags: 0x{6:X8}',
+    $this.State.WriteObject(
+        'BCryptImportKeyPair(Algorithm: 0x{0:X8}, ImportKey: 0x{1:X8}, BlobType: 0x{2:X8}, OutKey: 0x{3:X8}, InputData: 0x{4:X8}, InputLength: {5}, Flags: 0x{6:X8}' -f @(
         $Algorithm, $ImportKey, $BlobType, $OutKey, $InputData, $InputLength, $Flags
-    )
-    $this.State.WriteLine("`tBlobType: '$blobTypeStr', InputData: $([System.Convert]::ToHexString($inputBytes))")
+    ))
+    $this.State.WriteObject("`tBlobType: '$blobTypeStr', InputData: $([System.Convert]::ToHexString($inputBytes))")
 
     $res = $this.Invoke($Algorithm, $ImportKey, $BlobType, $OutKey, $InputData, $InputLength, $Flags)
-    $this.State.WriteLine('BCryptImportKeyPair -> Res: 0x{0:X8}, OutKey: 0x{1:X8}' -f @(
+    $this.State.WriteObject('BCryptImportKeyPair -> Res: 0x{0:X8}, OutKey: 0x{1:X8}' -f @(
         $res,
         [Int64][System.Runtime.InteropServices.Marshal]::ReadIntPtr($OutKey)
     ))
-    $this.State.WriteLine()
 
     $res
 }
