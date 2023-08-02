@@ -1,78 +1,54 @@
-Function Format-SecBufferDesc {
-    [OutputType([string])]
+Function Get-SecBufferDesc {
     [CmdletBinding()]
     param(
-        [IntPtr]$BufferDesc
+        [IntPtr]$BufferDesc,
+        [Switch]$IgnoreValue
     )
 
-    $typeMap = @{
-        0 = 'SECBUFFER_EMPTY'
-        1 = 'SECBUFFER_DATA'
-        2 = 'SECBUFFER_TOKEN'
-        3 = 'SECBUFFER_PKG_PARAMS'
-        4 = 'SECBUFFER_MISSING'
-        5 = 'SECBUFFER_EXTRA'
-        6 = 'SECBUFFER_STREAM_TRAILER'
-        7 = 'SECBUFFER_STREAM_HEADER'
-        8 = 'SECBUFFER_NEGOTIATION_INFO'
-        9 = 'SECBUFFER_PADDING'
-        10 = 'SECBUFFER_STREAM'
-        11 = 'SECBUFFER_MECHLIST'
-        12 = 'SECBUFFER_MECHLIST_SIGNATURE'
-        13 = 'SECBUFFER_TARGET'
-        14 = 'SECBUFFER_CHANNEL_BINDINGS'
-        15 = 'SECBUFFER_CHANGE_PASS_RESPONSE'
-        16 = 'SECBUFFER_TARGET_HOST'
-        17 = 'SECBUFFER_ALERT'
-        18 = 'SECBUFFER_APPLICATION_PROTOCOLS'
-        19 = 'SECBUFFER_SRTP_PROTECTION_PROFILES'
-        20 = 'SECBUFFER_SRTP_MASTER_KEY_IDENTIFIER'
-        21 = 'SECBUFFER_TOKEN_BINDING'
-        22 = 'SECBUFFER_PRESHARED_KEY'
-        23 = 'SECBUFFER_PRESHARED_KEY_IDENTITY'
-        24 = 'SECBUFFER_DTLS_MTU'
+    $res = [Ordered]@{
+        Raw = Format-Pointer $BufferDesc PSecBufferDesc
     }
+
+    $bufferStructSize = [System.Runtime.InteropServices.Marshal]::SizeOf([Type][Secur32.SecBuffer])
 
     if ($BufferDesc -ne [IntPtr]::Zero) {
-        $version = [System.Runtime.InteropServices.Marshal]::ReadInt32($BufferDesc)
-        $cBuffers = [System.Runtime.InteropServices.Marshal]::ReadInt32($BufferDesc, 4)
-        $bufferPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($BufferDesc, 8)
+        $desc = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $BufferDesc,
+            [Type][Secur32.SecBufferDesc])
+        $res.Version = $desc.ulVersion
+        $res.Count = $desc.cBuffer
+        $res.BufferPtr = Format-Pointer $desc.pBuffers PSecBuffer
 
-        "`tSecBufferDesc(Version: $version, Buffers: $cBuffers)"
+        $bufferPtr = $desc.pBuffers
+        $res.Buffers = @(
+            for ($i = 0; $i -lt $desc.cBuffer; $i++) {
+                $buffer = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+                    $bufferPtr,
+                    [Type][Secur32.SecBuffer])
+                $bufferType = $buffer.BufferType -band -bnot ([Secur32.SecBufferFlags]::SECBUFFER_ATTRMASK)
+                $bufferFlags = $buffer.BufferType -band ([Secur32.SecBufferFlags]::SECBUFFER_ATTRMASK)
+                $bufferPtr = [IntPtr]::Add($bufferPtr, $bufferStructSize)
 
-        for ($i = 0; $i -lt $cBuffers; $i++) {
-            $bufferLength = [System.Runtime.InteropServices.Marshal]::ReadInt32($bufferPtr)
-            $bufferType = [System.Runtime.InteropServices.Marshal]::ReadInt32($bufferPtr, 4)
+                if ($buffer.cbBuffer -and $buffer.pvBuffer -ne [IntPtr]::Zero -and -not $IgnoreValue) {
+                    $bufferBytes = [byte[]]::new($buffer.cbBuffer)
+                    [System.Runtime.InteropServices.Marshal]::Copy($buffer.pvBuffer, $bufferBytes, 0, $bufferBytes.Length)
+                }
+                else {
+                    $bufferBytes = [byte[]]::new(0)
+                }
 
-            $readOnly = ''
-            if ($bufferType -band 0x80000000) {
-                $readOnly = ' | SECBUFFER_READONLY'
-                $bufferType = $bufferType -band -bnot 0x80000000
+                [Ordered]@{
+                    Type = Format-Enum $bufferType ([Secur32.SecBufferType])
+                    Flags = Format-Enum $bufferFlags ([Secur32.SecBufferFlags])
+                    Size = $buffer.cbBuffer
+                    Raw = Format-Pointer $buffer.pvBuffer
+                    Data = [System.Convert]::ToHexString($bufferBytes)
+                }
             }
-            $readOnlyWithChecksum = ''
-            if ($bufferType -band 0x10000000) {
-                $readOnlyWithChecksum = ' | SECBUFFER_READONLY_WITH_CHECKSUM'
-                $bufferType = $bufferType -band -bnot 0x10000000
-            }
-
-            $bufferTypeStr = if ($typeMap.Contains([int]$bufferType)) {
-                '{0}{1}{2} ({3})' -f ($typeMap[[int]$bufferType], $readOnly, $readOnlyWithChecksum, $bufferType)
-            }
-            else {
-                'SECBUFFER_UNKNOWN{0}{1} ({2})' -f $readOnly, $readOnlyWithChecksum, $bufferType
-            }
-            $dataPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($bufferPtr, 8)
-            $bufferPtr = [IntPtr]::Add($bufferPtr, 16)
-
-            $bufferBytes = [byte[]]::new($bufferLength)
-            if ($dataPtr -and $dataPtr -ne [IntPtr]::Zero) {
-                [System.Runtime.InteropServices.Marshal]::Copy($dataPtr, $bufferBytes, 0, $bufferBytes.Length)
-            }
-            $data = [System.Convert]::ToHexString($bufferBytes)
-
-            "`t`t[$i] Type: $bufferTypeStr, Length: $bufferLength, Data: $data"
-        }
+        )
     }
+
+    $res
 }
 
 New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
@@ -103,26 +79,81 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
     );
     #>
 
-    $principalStr = ''
-    if ($Principal -ne [IntPtr]::Zero) {
-        $principalStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Principal)
-    }
-    $packageStr = ''
-    if ($Package -ne [IntPtr]::Zero) {
-        $packageStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Package)
-    }
-
-    $this.State.WriteObject(
-        'AcquireCredentialsHandle(Principal: 0x{0:X8}, Package: 0x{1:X8}, CredentialUse: 0x{2:X8}, LogonId: 0x{3:X8}, AuthData: 0x{4:X8}, GetKeyFn: 0x{5:X8}, GetKeyArgument: 0x{6:X8}, Credential: 0x{7:X8}, Expiry: 0x{8:X8})' -f @(
-        $Principal, $Package, $CredentialUse, $LogonId, $AuthData, $GetKeyFn, $GetKeyArgument,
-        $Credential, $Expiry
-    ))
-    $this.State.WriteObject("`tPrincipal: $principalStr")
-    $this.State.WriteObject("`tPackage: $packageStr")
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Principal = Format-WideString $Principal
+        Package = Format-WideString $Package
+        CredentialUse = Format-Enum $CredentialUse ([Secur32.CredentialUse])
+        LogonID = Format-Pointer $LogonId PLUID
+        AuthData = Format-Pointer $AuthData PVOID
+        GetKeyFn = Format-Pointer $GetKeyFn SEC_GET_KEY_FN
+        GetKeyArgument = Format-Pointer $GetKeyArgument PVOID
+        Credential = Format-Pointer $Credential PCredHandle
+        Expiry = Format-Pointer $Expiry PTimeStamp
+    })
 
     $res = $this.Invoke($Principal, $Package, $CredentialUse, $LogonId, $AuthData, $GetKeyFn, $GetKeyArgument,
         $Credential, $Expiry)
-    $this.State.WriteObject('AcquireCredentialsHandle -> Res: 0x{0:X8}' -f $res)
+
+    Write-FunctionResult -Result $res
+
+    $res
+}
+
+New-PSDetourHook -DllName Secur32.dll -MethodName AcceptSecurityContext {
+    [OutputType([int])]
+    param(
+        [IntPtr]$Credential,
+        [IntPtr]$Context,
+        [IntPtr]$InputBuffer,
+        [int]$ContextReq,
+        [int]$TargetDataRep,
+        [IntPtr]$NewContext,
+        [IntPtr]$OutputBuffer,
+        [IntPtr]$ContextAttr,
+        [IntPtr]$Expiry
+    )
+
+    <#
+    SECURITY_STATUS SEC_Entry AcceptSecurityContext(
+        _In_opt_    PCredHandle    phCredential,
+        _Inout_opt_ PCtxtHandle    phContext,
+        _In_opt_    PSecBufferDesc pInput,
+        _In_        ULONG          fContextReq,
+        _In_        ULONG          TargetDataRep,
+        _Inout_opt_ PCtxtHandle    phNewContext,
+        _Inout_opt_ PSecBufferDesc pOutput,
+        _Out_       PULONG         pfContextAttr,
+        _Out_opt_   PTimeStamp     ptsExpiry
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Credential = Format-Pointer $Credential PCredHandle
+        Context = Format-Pointer $Context PCtxtHandle
+        Input = Get-SecBufferDesc $InputBuffer
+        ContextReq = Format-Enum $ContextReq ([Secur32.AscReq])
+        TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
+        NewContext = Format-Pointer $NewContext PCtxtHandle
+        Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
+        ContextAttr = Format-Pointer $ContextAttr
+        Expiry = Format-Pointer $Expiry PTimeStamp
+    })
+
+    $res = $this.Invoke($Credential, $Context, $InputBuffer, $ContextReq, $TargetDataRep, $NewContext, $OutputBuffer,
+        $ContextAttr, $Expiry)
+
+    $contextAttrValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($ContextAttr)
+    $expiryValue = if ($Expiry -ne [IntPtr]::Zero) {
+        $rawExpiry = [System.Runtime.InteropServices.Marshal]::ReadInt64($Expiry)
+        Format-FileTime $rawExpiry
+    }
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Output = Get-SecBufferDesc $OutputBuffer
+        ContextAttr = Format-Enum  $contextAttrValue ([Secur32.AscRet])
+        Expiry = $expiryValue
+    })
+
+    $res
 }
 
 New-PSDetourHook -DllName Secur32.dll -MethodName InitializeSecurityContextW {
@@ -159,28 +190,34 @@ New-PSDetourHook -DllName Secur32.dll -MethodName InitializeSecurityContextW {
     );
     #>
 
-    Set-Item -Path Function:Format-SecBufferDesc -Value $this.State.GetFunction("Format-SecBufferDesc")
-
-    $targetNameStr = ""
-    if ($TargetName -ne [IntPtr]::Zero) {
-        $targetNameStr = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($TargetName)
-    }
-
-    $this.State.WriteObject(
-        'InitializeSecurityContext(Credential: 0x{0:X8}, Context: 0x{1:X8}, TargetName: 0x{2:X8}, ContextReq: 0x{3:X8}, Reserved1: 0x{4:X8}, TargetDataRep: 0x{5:X8}, Input: 0x{6:X8}, Reserved2: 0x{7:X8}, NewContext: 0x{8:X8}, Output: 0x{9:X8}, ContextAttr: 0x{10:X8}, Expiry: 0x{11:X8})' -f @(
-        $Credential, $Context, $TargetName, $ContextReq, $Reserved1, $TargetDataRep, $InputBuffer, $Reserved2,
-        $NewContext, $OutputBuffer, $ContextAttr, $Expiry
-    ))
-    $this.State.WriteObject("`tTargetName: $targetNameStr")
-    Format-SecBufferDesc -BufferDesc $InputBuffer | ForEach-Object { $this.State.WriteObject($_) }
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Credential = Format-Pointer $Credential PCredHandle
+        Context = Format-Pointer $Context PCtxtHandle
+        TargetName = Format-WideString $TargetName
+        ContextReq = Format-Enum $ContextReq ([Secur32.IscReq])
+        Reserved1 = $Reserved1
+        TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
+        Input = Get-SecBufferDesc $InputBuffer
+        Reserved2 = $Reserved2
+        NewContext = Format-Pointer $NewContext PCtxtHandle
+        Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
+        ContextAttr = Format-Pointer $ContextAttr
+        Expiry = Format-Pointer $Expiry PTimeStamp
+    })
 
     $res = $this.Invoke($Credential, $Context, $TargetName, $ContextReq, $Reserved1, $TargetDataRep, $InputBuffer, $Reserved2,
         $NewContext, $OutputBuffer, $ContextAttr, $Expiry)
 
-    $this.State.WriteObject('InitializeSecurityContextW -> Res: 0x{0:X8}' -f $res)
     $contextAttrValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($ContextAttr)
-    $this.State.WriteObject("`tContextAttr: 0x{0:X8}" -f $contextAttrValue)
-    Format-SecBufferDesc -BufferDesc $OutputBuffer | ForEach-Object { $this.State.WriteObject($_) }
+    $expiryValue = if ($Expiry -ne [IntPtr]::Zero) {
+        $rawExpiry = [System.Runtime.InteropServices.Marshal]::ReadInt64($Expiry)
+        Format-FileTime $rawExpiry
+    }
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Output = Get-SecBufferDesc $OutputBuffer
+        ContextAttr = Format-Enum $contextAttrValue ([Secur32.IscRet])
+        Expiry = $expiryValue
+    })
 
     $res
 }
@@ -200,20 +237,21 @@ New-PSDetourHook -DllName Secur32.dll -MethodName EncryptMessage {
         [in]      unsigned long  fQOP,
         [in, out] PSecBufferDesc pMessage,
         [in]      unsigned long  MessageSeqNo
-        );
+    );
     #>
 
-    Set-Item -Path Function:Format-SecBufferDesc -Value $this.State.GetFunction("Format-SecBufferDesc")
-
-    $this.State.WriteObject('EncryptMessage(Context: 0x{0:X8}, Qop: {1}, Message: 0x{2:X8}, SeqNo: {3})' -f @(
-        $Context, $Qop, $Message, $SeqNo
-    ))
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Context = Format-Pointer $Context PCtxtHandle
+        Qop = $Qop
+        Message = Get-SecBufferDesc $Message
+        MessageSeqNo = $SeqNo
+    })
 
     $res = $this.Invoke($Context, $Qop, $Message, $SeqNo)
 
-    $this.State.WriteObject('EncryptMessage -> Res: 0x{0:X8}' -f $res)
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Message = Get-SecBufferDesc $Message
+    })
 
     $res
 }
@@ -236,24 +274,22 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
     );
     #>
 
-    Set-Item -Path Function:Format-SecBufferDesc -Value $this.State.GetFunction("Format-SecBufferDesc")
-
-    $this.State.WriteObject('DecryptMessage(Context: 0x{0:X8}, Message: 0x{1:X8}, SeqNo: {2}, Qop: 0x{3:X8})' -f @(
-        $Context, $Message, $SeqNo, $Qop
-    ))
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Context = Format-Pointer $Context PCtxtHandle
+        Message = Get-SecBufferDesc $Message
+        MessageSeqNo = $SeqNo
+        Qop = Format-Pointer $Qop
+    })
 
     $res = $this.Invoke($Context, $Message, $SeqNo, $Qop)
 
-    $qopValue = 0
-    if ($Qop -ne [IntPtr]::Zero) {
-        $qopValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
+    $qopValue = if ($Qop -ne [IntPtr]::Zero) {
+        [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
     }
-
-    $this.State.WriteObject('DecryptMessage -> Res: 0x{0:X8}, Qop: {1}' -f @(
-        $res, $qopValue
-    ))
-    Format-SecBufferDesc -BufferDesc $Message | ForEach-Object { $this.State.WriteObject($_) }
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Message = Get-SecBufferDesc $Message
+        Qop = $qopValue
+    })
 
     $res
 }

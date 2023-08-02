@@ -7,15 +7,40 @@ param (
 
     [Parameter()]
     [Alias("Id")]
-    [int]$ProcessId = 0
+    [int]$ProcessId = 0,
+
+    [Parameter()]
+    [ValidateSet('Raw', 'Yaml')]
+    [string]$OutputFormat = 'Raw'
 )
 
+if ($OutputFormat -eq 'Yaml') {
+    Import-Module -Name Yayaml -ErrorAction Stop
+}
+
 $traceParams = @{
-    FunctionsToDefine = [System.Collections.Generic.Dictionary[[string], [string]]]::new()
+    FunctionsToDefine = [System.Collections.Generic.Dictionary[[string], [ScriptBlock]]]::new()
+    CSharpToLoad = [System.Collections.Generic.List[string]]::new()
 }
 
 if ($ProcessId) {
     $traceParams.ProcessId = $ProcessId
+}
+
+$commonScriptPath = Join-Path $PSScriptRoot common.ps1
+. $commonScriptPath
+$commonScript = Get-Content -LiteralPath $commonScriptPath -Raw
+$ast = [System.Management.Automation.Language.Parser]::ParseInput(
+    $commonScript,
+    [ref]$null,
+    [ref]$null
+).EndBlock.Statements
+$ast.FindAll(
+    [Func[Management.Automation.Language.Ast,bool]]{
+        $args[0] -is [Management.Automation.Language.FunctionDefinitionAst]
+    }, $false
+) | ForEach-Object {
+    $traceParams.FunctionsToDefine[$_.Name] = (Get-Item "Function:$($_.Name)").ScriptBlock
 }
 
 $hooks = foreach ($kvp in $Metadata.GetEnumerator()) {
@@ -50,7 +75,12 @@ $hooks = foreach ($kvp in $Metadata.GetEnumerator()) {
             $args[0] -is [Management.Automation.Language.FunctionDefinitionAst]
         }, $false
     ) | ForEach-Object {
-        $traceParams.FunctionsToDefine[$_.Name] = (Get-Item "Function:$($_.Name)").ScriptBlock.ToString()
+        $traceParams.FunctionsToDefine[$_.Name] = (Get-Item "Function:$($_.Name)").ScriptBlock
+    }
+
+    $csharpPath = Join-Path $PSScriptRoot "$($kvp.Key).cs"
+    if (Test-Path -LiteralPath $csharpPath) {
+        $traceParams.CSharpToLoad.Add((Get-Content -LiteralPath $csharpPath -Raw))
     }
 }
 
@@ -59,4 +89,11 @@ if (-not $hooks) {
     return
 }
 
-$hooks | Trace-PSDetourProcess @traceParams
+$hooks | Trace-PSDetourProcess @traceParams | ForEach-Object {
+    if ($OutputFormat -eq 'Yaml') {
+        ConvertTo-Yaml -InputObject $_ -Depth 10 -AsArray
+    }
+    else {
+        $_
+    }
+}

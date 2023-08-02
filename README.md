@@ -16,5 +16,13 @@ $desiredHooks = @{
     BCrypt = 'BCrypt*'
 }
 
-. ./Trace-Process $desiredHooks -Id 1234
+. ./Trace-Process $desiredHooks -OutputFormat Yaml -Id 1234
 ```
+
+Make sure the following modules have been installed.
+
+```powershell
+Install-Module -Name PSDetour, Yayaml -Force -Scope AllUsers
+```
+
+_note: using AllUsers is needed for the hooked processes to see the modules._
