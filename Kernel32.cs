@@ -1,8 +1,31 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Kernel32;
 
-[Flags()]
+[Flags]
+public enum ConsoleFill
+{
+    None = 0x00000000,
+    FOREGROUND_BLUE = 0x00000001,
+    FOREGROUND_GREEN = 0x00000002,
+    FOREGROUND_RED = 0x00000004,
+    FOREGROUND_INTENSITY = 0x00000008,
+    BACKGROUND_BLUE = 0x00000010,
+    BACKGROUND_GREEN = 0x00000020,
+    BACKGROUND_RED = 0x00000040,
+    BACKGROUND_INTENSITY = 0x00000080,
+}
+
+[Flags]
+public enum LogonFlags
+{
+    None = 0x00000000,
+    LOGON_WITH_PROFILE = 0x00000001,
+    LOGON_NETCREDENTIALS_ONLY = 0x00000002,
+}
+
+[Flags]
 public enum ProcessAccessMask
 {
     PROCESS_TERMINATE = 0x00000001,
@@ -37,4 +60,127 @@ public enum ProcessAccessMask
     GENERIC_READ = unchecked((int)0x800000000),
 
     PROCESS_ALL_ACCESS = STANDARD_RIGHTS_REQUIED | SYNCHRONIZE | 0x1FFF,
+}
+
+[Flags]
+public enum ProcessCreationFlags
+{
+    None = 0x00000000,
+    DEBUG_PROCESS = 0x00000001,
+    DEBUG_ONLY_THIS_PROCESS = 0x00000002,
+    CREATE_SUSPENDED = 0x00000004,
+    DETACHED_PROCESS = 0x00000008,
+    CREATE_NEW_CONSOLE = 0x00000010,
+    NORMAL_PRIORITY_CLASS = 0x00000020,
+    IDLE_PRIORITY_CLASS = 0x00000040,
+    HIGH_PRIORITY_CLASS = 0x00000080,
+    REALTIME_PRIORITY_CLASS = 0x00000100,
+    CREATE_NEW_PROCESS_GROUP = 0x00000200,
+    CREATE_UNICODE_ENVIRONMENT = 0x00000400,
+    CREATE_SEPARATE_WOW_VDM = 0x00000800,
+    CREATE_SHARED_WOW_VDM = 0x00001000,
+    CREATE_FORCEDOS = 0x00002000,
+    BELOW_NORMAL_PRIORITY_CLASS = 0x00004000,
+    ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000,
+    INHERIT_PARENT_AFFINITY = 0x00010000,
+    INHERIT_CALLER_PRIORITY = 0x00020000,
+    CREATE_PROTECTED_PROCESS = 0x00040000,
+    EXTENDED_STARTUPINFO_PRESENT = 0x00080000,
+    PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000,
+    PROCESS_MODE_BACKGROUND_END = 0x00200000,
+    CREATE_SECURE_PROCESS = 0x00400000,
+    CREATE_BREAKAWAY_FROM_JOB = 0x01000000,
+    CREATE_PRESERVE_CODE_AUTHZ_LEVEL = 0x02000000,
+    CREATE_DEFAULT_ERROR_MODE = 0x04000000,
+    CREATE_NO_WINDOW = 0x08000000,
+    PROFILE_USER = 0x10000000,
+    PROFILE_KERNEL = 0x20000000,
+    PROFILE_SERVER = 0x40000000,
+    CREATE_IGNORE_SYSTEM_DEFAULT = unchecked((int)0x80000000),
+}
+
+[Flags]
+public enum StartupInfoFlags : int
+{
+    None = 0x00000000,
+    STARTF_USESHOWWINDOW = 0x00000001,
+    STARTF_USESIZE = 0x00000002,
+    STARTF_USEPOSITION = 0x00000004,
+    STARTF_USECOUNTCHARS = 0x00000008,
+    STARTF_USEFILLATTRIBUTE = 0x00000010,
+    STARTF_RUNFULLSCREEN = 0x00000020,
+    STARTF_FORCEONFEEDBACK = 0x00000040,
+    STARTF_FORCEOFFFEEDBACK = 0x00000080,
+    STARTF_USESTDHANDLES = 0x00000100,
+    STARTF_USEHOTKEY = 0x00000200,
+    STARTF_TITLEISLINKNAME = 0x00000800,
+    STARTF_TITLEISAPPID = 0x00001000,
+    STARTF_PREVENTPINNING = 0x00002000,
+    STARTF_UNTRUSTEDSOURCE = 0x00008000,
+}
+
+public enum WindowStyle : short
+{
+    SW_HIDE = 0x0000,
+    SW_SHOWNORMAL = 0x0001,
+    SW_NORMAL = SW_SHOWNORMAL,
+    SW_SHOWMINIMIZED = 0x0002,
+    SW_SHOWMAXIMIZED = 0x0003,
+    SW_MAXIMIZE = SW_SHOWMAXIMIZED,
+    SW_SHOWNOACTIVATE = 0x0004,
+    SW_SHOW = 0x0005,
+    SW_MINIMIZE = 0x0006,
+    SW_SHOWMINNOACTIVE = 0x0007,
+    SW_SHOWNA = 0x0008,
+    SW_RESTORE = 0x0009,
+    SW_SHOWDEFAULT = 0x0010,
+    SW_FORCEMINIMIZE = 0x0011,
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct PROCESS_INFORMATION
+{
+    public nint hProcess;
+    public nint hThread;
+    public int dwProcessId;
+    public int dwThreadId;
+}
+
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SECURITY_ATTRIBUTES
+{
+    public int nLength;
+    public nint lpSecurityDescriptor;
+    public bool bInheritHandle;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct STARTUPINFOW
+{
+    public int cb;
+    public nint lpReserved;
+    public nint lpDesktop;
+    public nint lpTitle;
+    public int dwX;
+    public int dwY;
+    public int dwXSize;
+    public int dwYSize;
+    public int dwXCountChars;
+    public int dwYCountChars;
+    public int dwFillAttribute;
+    public int dwFlags;
+    public short wShowWindow;
+    public short cbReserved2;
+    public nint lpReserved2;
+    public nint hStdInput;
+    public nint hStdOutput;
+    public nint hStdError;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct STARTUPINFOEXW
+{
+    public STARTUPINFOW StartupInfo;
+    public nint lpAttributeList;
 }

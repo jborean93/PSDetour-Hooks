@@ -26,9 +26,9 @@ Function Format-WideString {
     [CmdletBinding()]
     param([IntPtr]$Value)
 
-    $strValue = ''
-    $strValue = if ($Value -ne [IntPtr]::Zero) {
-        [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Value)
+    $strValue = $null
+    if ($Value -ne [IntPtr]::Zero) {
+        $strValue = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Value)
     }
 
     [Ordered]@{
