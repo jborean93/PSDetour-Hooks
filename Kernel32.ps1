@@ -13,9 +13,27 @@ Function Get-SecurityAttributes {
 
         $sd = $null
         if ($sa.lpSecurityDescriptor -ne [IntPtr]::Zero) {
-            $sdBytes = [byte[]]::new($sa.nLength)
-            [System.Runtime.InteropServices.Marshal]::Copy($sd.lpSecurityDescriptor, $sdBytes, 0, $sdBytes.Length)
-            $sd = [System.Convert]::ToHexString($sdBytes)
+            $getLengthMeth = if ($this.DetouredModules.Advapi32 -and $this.DetouredModules.Advapi32.ContainsKey('GetSecurityDescriptorLength')) {
+                $this.DetouredModules.Advapi32.GetSecurityDescriptorLength
+            }
+            else {
+                [Kernel32.Methods]::GetSecurityDescriptorLength
+            }
+            $sdLength = $getLengthMeth.Invoke($sa.lpSecurityDescriptor)
+
+            if ($sdLength) {
+                $sdBytes = [byte[]]::new($sdLength)
+                [System.Runtime.InteropServices.Marshal]::Copy($sa.lpSecurityDescriptor, $sdBytes, 0, $sdBytes.Length)
+                $sdHex = [System.Convert]::ToHexString($sdBytes)
+                $sdObj = [System.Security.AccessControl.RawSecurityDescriptor]::new($sdBytes, 0)
+                $sd = [Ordered]@{
+                    Bytes = $sdHex
+                    SDDL = $sdObj.GetSddlForm([System.Security.AccessControl.AccessControlSections]::All)
+                }
+            }
+            else {
+                $sd = 'Failed to unpack SECURITY_DESCRIPTOR'
+            }
         }
         $res.SecurityDescriptor = $sd
         $res.InheritHandle = $sa.bInheritHandle
@@ -78,7 +96,102 @@ Function Get-StartupInfo {
         $res.StdOutput = Format-Pointer $si.hStdOutput HANDLE
         $res.StdError = Format-Pointer $si.hStdError HANDLE
 
-        $res.AttributeList = Format-Pointer $attrList LPPROC_THREAD_ATTRIBUTE_LIST
+        $res.AttributeList = Get-ProcThreadAttributeList $attrList
+    }
+
+    $res
+}
+
+Function Get-ProcThreadAttributeList {
+    [CmdletBinding()]
+    param(
+        [IntPtr]$Raw
+    )
+
+    $res = [Ordered]@{
+        Raw = Format-Pointer $Raw LPPROC_THREAD_ATTRIBUTE_LIST
+    }
+
+    if ($Raw -ne [IntPtr]::Zero) {
+        $attrList = [System.Runtime.InteropServices.Marshal]::PtrToStructure($Raw, [type][Kernel32.PROC_THREAD_ATTRIBUTE_LIST])
+
+        $res.Flags = $attrList.dwFlags
+        $res.MaximumCount = $attrList.dwMaximumCount
+        $res.Unknown1 = $attrList.dwUnknown1
+        $res.Unknown2 = Format-Pointer $attrList.lpUnknown2
+
+        $attrPtr = [IntPtr]::Add(
+            $Raw,
+            [System.Runtime.InteropServices.Marshal]::OffsetOf(
+                [Kernel32.PROC_THREAD_ATTRIBUTE_LIST],
+                "Entries"
+            )
+        )
+        $attrSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type][Kernel32.PROC_THREAD_ATTRIBUTE_ENTRY])
+        $res.Attributes = @(
+            for ($i = 0; $i -lt $attrList.dwActualCount; $i++) {
+                $attr = [System.Runtime.InteropServices.Marshal]::PtrToStructure($attrPtr, [type][Kernel32.PROC_THREAD_ATTRIBUTE_ENTRY])
+
+                $attrType = [int]$attr.Attribute
+                $value = $null
+                $processedValue = $null
+                if ([int64]$attr.cbSize -and $attr.lpValue -ne [IntPtr]::Zero) {
+                    $valueBytes = [byte[]]::new($attr.cbSize)
+                    [System.Runtime.InteropServices.Marshal]::Copy($attr.lpValue, $valueBytes, 0, $valueBytes.Length)
+
+                    $value = [System.Convert]::ToHexString($valueBytes)
+                    if ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_PARENT_PROCESS) {
+                        $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.lpValue)
+
+                        $methInfo = if ($this.DetouredModules.Kernel32.ContainsKey('GetProcessId')) {
+                            $this.DetouredModules.Kernel32.GetProcessId
+                        }
+                        else {
+                            [Kernel32.Methods]::GetProcessId
+                        }
+
+                        # This will be 0 if the handle doesn't have the required rights, nothing
+                        # we can do about that.
+                        $procId = $methInfo.Invoke($handle)
+                        if ($procId -eq 0) {
+                            $procId = 'Failed to get proc id, probably due to limited access rights'
+                        }
+
+                        $processedValue = [Ordered]@{
+                            Handle = Format-Pointer $handle HANDLE
+                            ProcessId = $procId
+                        }
+                    }
+                    elseif ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_HANDLE_LIST) {
+                        $processedValue = @(
+                            for ($i = 0; $i -lt $valueBytes.Length; $i += [IntPtr]::Size) {
+                                $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr(
+                                    [IntPtr]::Add($attr.lpValue, $i)
+                                )
+
+                                Format-Pointer $handle 'HANDLE'
+                            }
+                        )
+                    }
+                    elseif ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE) {
+                        $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.lpValue)
+
+                        $processedValue = Format-Pointer $handle HPCON
+                    }
+                }
+
+                $attrValue = [Ordered]@{
+                    Attribute = Format-Enum $attrType ([Kernel32.ProcessThreadAttribute])
+                    Value = $value
+                }
+                if ($null -ne $processedValue) {
+                    $attrValue.ProcessedValue = $processedValue
+                }
+                $attrValue
+
+                $attrPtr = [IntPtr]::Add($attrPtr, $attrSize)
+            }
+        )
     }
 
     $res

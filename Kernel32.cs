@@ -99,6 +99,31 @@ public enum ProcessCreationFlags
     CREATE_IGNORE_SYSTEM_DEFAULT = unchecked((int)0x80000000),
 }
 
+public enum ProcessThreadAttribute
+{
+    PROC_THREAD_ATTRIBUTE_PARENT_PROCESS = 0x00020000,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002,
+    PROC_THREAD_ATTRIBUTE_GROUP_AFFINITY = 0x00030003,
+    PROC_THREAD_ATTRIBUTE_PREFERRED_NODE = 0x00020004,
+    PROC_THREAD_ATTRIBUTE_IDEAL_PROCESSOR = 0x00030005,
+    PROC_THREAD_ATTRIBUTE_UMS_THREAD = 0x00030006,
+    PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY = 0x00020007,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009,
+    PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL = 0x0002000B,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D,
+    PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY = 0x0002000E,
+    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY = 0x0002000F,
+    PROC_THREAD_ATTRIBUTE_WIN32K_FILTER = 0x00020010,
+    PROC_THREAD_ATTRIBUTE_SAFE_OPEN_PROMPT_ORIGIN_CLAIM = 0x00020011,
+    PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY = 0x00020012,
+    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016,
+    PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY = 0x00020018,
+    PROC_THREAD_ATTRIBUTE_MACHINE_TYPE = 0x00020019,
+    PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER = 0x0002001A,
+    PROC_THREAD_ATTRIBUTE_ENABLE_OPTIONAL_XSTATE_FEATURES = 0x0002001B,
+    PROC_THREAD_ATTRIBUTE_TRUSTED_APP = 0x0002001D,
+}
+
 [Flags]
 public enum StartupInfoFlags : int
 {
@@ -135,6 +160,27 @@ public enum WindowStyle : short
     SW_RESTORE = 0x0009,
     SW_SHOWDEFAULT = 0x0010,
     SW_FORCEMINIMIZE = 0x0011,
+}
+
+// The PROC_THREAD_ATTRIBUTE_* structs are undocumented so this is a best guess.
+// http://www.rohitab.com/discuss/topic/38601-proc-thread-attribute-list-structure-documentation/
+[StructLayout(LayoutKind.Sequential)]
+public struct PROC_THREAD_ATTRIBUTE_ENTRY
+{
+    public nint Attribute;
+    public nint cbSize;
+    public nint lpValue;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct PROC_THREAD_ATTRIBUTE_LIST
+{
+    public int dwFlags;
+    public int dwMaximumCount;
+    public int dwActualCount;
+    public int dwUnknown1;
+    public nint lpUnknown2;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)] public PROC_THREAD_ATTRIBUTE_ENTRY[] Entries;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -183,4 +229,17 @@ public struct STARTUPINFOEXW
 {
     public STARTUPINFOW StartupInfo;
     public nint lpAttributeList;
+}
+
+public static class Methods
+{
+    [DllImport("Kernel32.dll")]
+    public static extern int GetProcessId(
+        nint Process
+    );
+
+    [DllImport("Advapi32.dll")]
+    public static extern int GetSecurityDescriptorLength(
+        nint pSecurityDescriptor
+    );
 }
