@@ -18,6 +18,14 @@ public enum ConsoleFill
 }
 
 [Flags]
+public enum ExtendedProcessCreationFlags
+{
+    EXTENDED_PROCESS_CREATION_FLAG_ELEVATION_HANDLED = 0x00000001,
+    EXTENDED_PROCESS_CREATION_FLAG_FORCELUA = 0x00000002,
+    EXTENDED_PROCESS_CREATION_FLAG_FORCE_BREAKAWAY = 0x00000004,
+}
+
+[Flags]
 public enum LogonFlags
 {
     None = 0x00000000,
@@ -99,29 +107,45 @@ public enum ProcessCreationFlags
     CREATE_IGNORE_SYSTEM_DEFAULT = unchecked((int)0x80000000),
 }
 
+[Flags]
+public enum ProcessThreadAttributeFlags
+{
+    PROC_THREAD_ATTRIBUTE_NUMBER = 0x0000FFFF,
+    PROC_THREAD_ATTRIBUTE_THREAD = 0x00010000,  // Attribute may be used with thread creation
+    PROC_THREAD_ATTRIBUTE_INPUT = 0x00020000,  // Attribute is input only
+    PROC_THREAD_ATTRIBUTE_ADDITIVE = 0x00040000,  // Attribute may be "accumulated," e.g. bitmasks, counters, etc.
+}
+
 public enum ProcessThreadAttribute
 {
-    PROC_THREAD_ATTRIBUTE_PARENT_PROCESS = 0x00020000,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002,
-    PROC_THREAD_ATTRIBUTE_GROUP_AFFINITY = 0x00030003,
-    PROC_THREAD_ATTRIBUTE_PREFERRED_NODE = 0x00020004,
-    PROC_THREAD_ATTRIBUTE_IDEAL_PROCESSOR = 0x00030005,
-    PROC_THREAD_ATTRIBUTE_UMS_THREAD = 0x00030006,
-    PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY = 0x00020007,
-    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009,
-    PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL = 0x0002000B,
-    PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D,
-    PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY = 0x0002000E,
-    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY = 0x0002000F,
-    PROC_THREAD_ATTRIBUTE_WIN32K_FILTER = 0x00020010,
-    PROC_THREAD_ATTRIBUTE_SAFE_OPEN_PROMPT_ORIGIN_CLAIM = 0x00020011,
-    PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY = 0x00020012,
-    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016,
-    PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY = 0x00020018,
-    PROC_THREAD_ATTRIBUTE_MACHINE_TYPE = 0x00020019,
-    PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER = 0x0002001A,
-    PROC_THREAD_ATTRIBUTE_ENABLE_OPTIONAL_XSTATE_FEATURES = 0x0002001B,
-    PROC_THREAD_ATTRIBUTE_TRUSTED_APP = 0x0002001D,
+    ProcThreadAttributeParentProcess = 0,
+    ProcThreadAttributeExtendedFlags = 1,
+    ProcThreadAttributeHandleList = 2,
+    ProcThreadAttributeGroupAffinity = 3,
+    ProcThreadAttributePreferredNode = 4,
+    ProcThreadAttributeIdealProcessor = 5,
+    ProcThreadAttributeUmsThread = 6,
+    ProcThreadAttributeMitigationPolicy = 7,
+    ProcThreadAttributePackageFullName = 8,
+    ProcThreadAttributeSecurityCapabilities = 9,
+    ProcThreadAttributeConsoleReference = 10,
+    ProcThreadAttributeProtectionLevel = 11,
+    ProcThreadAttributeOsMaxVersionTested = 12,
+    ProcThreadAttributeJobList = 13,
+    ProcThreadAttributeChildProcessPolicy = 14,
+    ProcThreadAttributeAllApplicationPackagesPolicy = 15,
+    ProcThreadAttributeWin32kFilter = 16,
+    ProcThreadAttributeSafeOpenPromptOriginClaim = 17,
+    ProcThreadAttributeDesktopAppPolicy = 18,
+    ProcThreadAttributeBnoIsolation = 19,
+    ProcThreadAttributePseudoConsole = 22,
+    ProcThreadAttributeIsolationManifest = 23,
+    ProcThreadAttributeMitigationAuditPolicy = 0x0002420018,
+    ProcThreadAttributeMachineType = 25,
+    ProcThreadAttributeComponentFilter = 26,
+    ProcThreadAttributeEnableOptionalXStateFeatures = 27,
+    ProcThreadAttributeCreateStore = 28,
+    ProcThreadAttributeTrustedApp = 29,
 }
 
 [Flags]
@@ -164,12 +188,13 @@ public enum WindowStyle : short
 
 // The PROC_THREAD_ATTRIBUTE_* structs are undocumented so this is a best guess.
 // http://www.rohitab.com/discuss/topic/38601-proc-thread-attribute-list-structure-documentation/
+// https://github.com/winsiderss/phnt/blob/master/ntpsapi.h
 [StructLayout(LayoutKind.Sequential)]
 public struct PROC_THREAD_ATTRIBUTE_ENTRY
 {
     public nint Attribute;
-    public nint cbSize;
-    public nint lpValue;
+    public nint Size;
+    public nint Value;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -179,7 +204,7 @@ public struct PROC_THREAD_ATTRIBUTE_LIST
     public int dwMaximumCount;
     public int dwActualCount;
     public int dwUnknown1;
-    public nint lpUnknown2;
+    public nint ExtendedFlagsAttribute; // Pointer to PROC_THREAD_ATTRIBUTE_ENTRY of ProcThreadAttributeExtendedFlags if present
     [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)] public PROC_THREAD_ATTRIBUTE_ENTRY[] Entries;
 }
 

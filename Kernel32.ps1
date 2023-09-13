@@ -49,7 +49,13 @@ Function Get-StartupInfo {
         [switch]$IsExtended
     )
 
-    $pointerType = if ($IsExtended) {
+    $siSize = 0
+    $siExSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type][Kernel32.STARTUPINFOEXW])
+    if ($Raw -ne [IntPtr]::Zero) {
+        $siSize = [System.Runtime.InteropServices.Marshal]::ReadInt32($Raw)
+    }
+
+    $pointerType = if ($IsExtended -and $siSize -ge $siExSize) {
         'LPSTARTUPINFOEXW'
     }
     else {
@@ -61,7 +67,7 @@ Function Get-StartupInfo {
     }
 
     if ($Raw -ne [IntPtr]::Zero) {
-        if ($IsExtended) {
+        if ($pointerType -eq 'LPSTARTUPINFOEXW') {
             $value = [System.Runtime.InteropServices.Marshal]::PtrToStructure($Raw, [type][Kernel32.STARTUPINFOEXW])
             $si = $value.StartupInfo
             $attrList = $value.lpAttributeList
@@ -105,7 +111,8 @@ Function Get-StartupInfo {
 Function Get-ProcThreadAttributeList {
     [CmdletBinding()]
     param(
-        [IntPtr]$Raw
+        [IntPtr]$Raw,
+        [int]$StartupInfoSize
     )
 
     $res = [Ordered]@{
@@ -115,10 +122,12 @@ Function Get-ProcThreadAttributeList {
     if ($Raw -ne [IntPtr]::Zero) {
         $attrList = [System.Runtime.InteropServices.Marshal]::PtrToStructure($Raw, [type][Kernel32.PROC_THREAD_ATTRIBUTE_LIST])
 
-        $res.Flags = $attrList.dwFlags
+        $res.Flags = "0x{0:X8}" -f $attrList.dwFlags
         $res.MaximumCount = $attrList.dwMaximumCount
-        $res.Unknown1 = $attrList.dwUnknown1
-        $res.Unknown2 = Format-Pointer $attrList.lpUnknown2
+        $res.Count = $attrList.dwActualCount
+        $res.Unknown = "0x{0:X8}" -f $attrList.dwUnknown1
+        # $attrList.ExtendedFlagsAttribute is just the pointer to the
+        # ProcThreadAttributeExtendedFlags entry if present.
 
         $attrPtr = [IntPtr]::Add(
             $Raw,
@@ -132,61 +141,67 @@ Function Get-ProcThreadAttributeList {
             for ($i = 0; $i -lt $attrList.dwActualCount; $i++) {
                 $attr = [System.Runtime.InteropServices.Marshal]::PtrToStructure($attrPtr, [type][Kernel32.PROC_THREAD_ATTRIBUTE_ENTRY])
 
-                $attrType = [int]$attr.Attribute
-                $value = $null
-                $processedValue = $null
-                if ([int64]$attr.cbSize -and $attr.lpValue -ne [IntPtr]::Zero) {
-                    $valueBytes = [byte[]]::new($attr.cbSize)
-                    [System.Runtime.InteropServices.Marshal]::Copy($attr.lpValue, $valueBytes, 0, $valueBytes.Length)
-
-                    $value = [System.Convert]::ToHexString($valueBytes)
-                    if ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_PARENT_PROCESS) {
-                        $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.lpValue)
-
-                        $methInfo = if ($this.DetouredModules.Kernel32.ContainsKey('GetProcessId')) {
-                            $this.DetouredModules.Kernel32.GetProcessId
-                        }
-                        else {
-                            [Kernel32.Methods]::GetProcessId
-                        }
-
-                        # This will be 0 if the handle doesn't have the required rights, nothing
-                        # we can do about that.
-                        $procId = $methInfo.Invoke($handle)
-                        if ($procId -eq 0) {
-                            $procId = 'Failed to get proc id, probably due to limited access rights'
-                        }
-
-                        $processedValue = [Ordered]@{
-                            Handle = Format-Pointer $handle HANDLE
-                            ProcessId = $procId
-                        }
-                    }
-                    elseif ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_HANDLE_LIST) {
-                        $processedValue = @(
-                            for ($i = 0; $i -lt $valueBytes.Length; $i += [IntPtr]::Size) {
-                                $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr(
-                                    [IntPtr]::Add($attr.lpValue, $i)
-                                )
-
-                                Format-Pointer $handle 'HANDLE'
-                            }
-                        )
-                    }
-                    elseif ($attrType -eq [Kernel32.ProcessThreadAttribute]::PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE) {
-                        $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.lpValue)
-
-                        $processedValue = Format-Pointer $handle HPCON
-                    }
-                }
-
+                $attrType = ([int]$attr.Attribute -band [Kernel32.ProcessThreadAttributeFlags]::PROC_THREAD_ATTRIBUTE_NUMBER)
+                $attrFlags = ([int]$attr.Attribute -band -bnot [Kernel32.ProcessThreadAttributeFlags]::PROC_THREAD_ATTRIBUTE_NUMBER)
                 $attrValue = [Ordered]@{
-                    Attribute = Format-Enum $attrType ([Kernel32.ProcessThreadAttribute])
-                    Value = $value
+                    Attribute = Format-Pointer $attr.Attribute PROC_ATTRIBUTE
+                    Type = Format-Enum $attrType ([Kernel32.ProcessThreadAttribute])
+                    Flags = Format-Enum $attrFlags([Kernel32.ProcessThreadAttributeFlags])
+                    Size = [int64]$attr.Size
+                    Raw = Format-Pointer $attr.Value
                 }
-                if ($null -ne $processedValue) {
-                    $attrValue.ProcessedValue = $processedValue
+
+                if (
+                    $attrType -eq [Kernel32.ProcessThreadAttribute]::ProcThreadAttributeParentProcess -and
+                    $attr.Value -ne [IntPtr]::Zero
+                ) {
+                    $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.Value)
+
+                    $methInfo = if ($this.DetouredModules.Kernel32.ContainsKey('GetProcessId')) {
+                        $this.DetouredModules.Kernel32.GetProcessId
+                    }
+                    else {
+                        [Kernel32.Methods]::GetProcessId
+                    }
+
+                    # This will be 0 if the handle doesn't have the required rights, nothing
+                    # we can do about that.
+                    $procId = $methInfo.Invoke($handle)
+                    if ($procId -eq 0) {
+                        $procId = 'Failed to get proc id, probably due to limited access rights'
+                    }
+
+                    $attrValue.Value = [Ordered]@{
+                        Handle = Format-Pointer $handle HANDLE
+                        ProcessId = $procId
+                    }
                 }
+                elseif ($attrType -eq [Kernel32.ProcessThreadAttribute]::ProcThreadAttributeExtendedFlags) {
+                    $attrValue.Value = Format-Enum ([int]$attr.Value) ([Kernel32.ExtendedProcessCreationFlags])
+                }
+                elseif (
+                    $attrType -eq [Kernel32.ProcessThreadAttribute]::ProcThreadAttributeHandleList -and
+                    $attr.Value -ne [IntPtr]::Zero
+                ) {
+                    $attrValue.Value = @(
+                        for ($i = 0; $i -lt [int]$attr.Size; $i += [IntPtr]::Size) {
+                            $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr(
+                                [IntPtr]::Add($attr.Value, $i)
+                            )
+
+                            Format-Pointer $handle 'HANDLE'
+                        }
+                    )
+                }
+                elseif (
+                    $attrType -eq [Kernel32.ProcessThreadattribute]::ProcThreadAttributePseudoConsole -and
+                    $attr.Value -ne [IntPtr]::Zero
+                ) {
+                    $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.Value)
+
+                    $attrValue.Value = Format-Pointer $handle HPCON
+                }
+
                 $attrValue
 
                 $attrPtr = [IntPtr]::Add($attrPtr, $attrSize)
