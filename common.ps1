@@ -59,7 +59,7 @@ Function Write-FunctionCall {
     $res = [Ordered]@{
         Function = (Get-PSCallStack)[1].FunctionName
         Time = Get-Date
-        ThreadId = (New-CtypesLib Kernel32.dll).GetCurrentThreadId()
+        ThreadId = [PSDetourHooks.Methods]::GetCurrentThreadId()
         Arguments = $Arguments
     }
     $this.State.WriteObject($res)
@@ -80,7 +80,7 @@ Function Write-FunctionResult {
     $res = [Ordered]@{
         Function = (Get-PSCallStack)[1].FunctionName
         Time = Get-Date
-        ThreadId = (New-CtypesLib Kernel32.dll).GetCurrentThreadId()
+        ThreadId = [PSDetourHooks.Methods]::GetCurrentThreadId()
         Result = $Result
         Info = $Info
     }

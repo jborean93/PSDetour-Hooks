@@ -36,12 +36,14 @@ $ast = [System.Management.Automation.Language.Parser]::ParseInput(
     [ref]$null
 ).EndBlock.Statements
 $ast.FindAll(
-    [Func[Management.Automation.Language.Ast,bool]]{
+    [Func[Management.Automation.Language.Ast, bool]] {
         $args[0] -is [Management.Automation.Language.FunctionDefinitionAst]
     }, $false
 ) | ForEach-Object {
     $traceParams.FunctionsToDefine[$_.Name] = (Get-Item "Function:$($_.Name)").ScriptBlock
 }
+
+$traceParams.CSharpToLoad.Add((Get-Content -LiteralPath (Join-Path $PSScriptRoot common.cs) -Raw))
 
 $hooks = foreach ($kvp in $Metadata.GetEnumerator()) {
     $filePath = Join-Path $PSScriptRoot "$($kvp.Key).ps1"
@@ -71,7 +73,7 @@ $hooks = foreach ($kvp in $Metadata.GetEnumerator()) {
         [ref]$null
     ).EndBlock.Statements
     $ast.FindAll(
-        [Func[Management.Automation.Language.Ast,bool]]{
+        [Func[Management.Automation.Language.Ast, bool]] {
             $args[0] -is [Management.Automation.Language.FunctionDefinitionAst]
         }, $false
     ) | ForEach-Object {
