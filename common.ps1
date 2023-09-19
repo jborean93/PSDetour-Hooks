@@ -41,7 +41,12 @@ Function Format-FileTime {
     [CmdletBinding()]
     param([long]$Value)
 
-    $dt = [DateTime]::FromFileTimeUtc($Value)
+    try {
+        $dt = [DateTime]::FromFileTimeUtc($Value)
+    }
+    catch [System.ArgumentOutOfRangeException] {
+        $dt = $null
+    }
     [Ordered]@{
         Raw = $Value
         DateTime = $dt
