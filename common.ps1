@@ -1,3 +1,19 @@
+Function Format-Guid {
+    [CmdletBinding()]
+    param ($Value)
+
+    $guidValue = if ($Value -ne [IntPtr]::Zero) {
+        $guidBytes = [byte[]]::new(16)
+        [System.Runtime.InteropServices.Marshal]::Copy($Value, $guidBytes, 0, 16)
+        [Guid]::new($guidBytes).Guid
+    }
+
+    [Ordered]@{
+        Raw = Format-Pointer $Value PGUID
+        Value = $guidValue
+    }
+}
+
 Function Format-Pointer {
     [CmdletBinding()]
     param($Value, $Type = 'Pointer')
