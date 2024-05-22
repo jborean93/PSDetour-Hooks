@@ -79,11 +79,20 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
     );
     #>
 
+    $luid = [Ordered]@{
+        Raw = Format-Pointer $LogonID PLUID
+    }
+    if ($LogonID -ne [IntPtr]::Zero) {
+        $rawLuid = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.LUID]($LogonID)
+        $luid.LowPart = $rawLuid.LowPart
+        $luid.HighPart = $rawLuid.HighPart
+    }
+
     Write-FunctionCall -Arguments ([Ordered]@{
         Principal = Format-WideString $Principal
         Package = Format-WideString $Package
         CredentialUse = Format-Enum $CredentialUse ([Secur32.CredentialUse])
-        LogonID = Format-Pointer $LogonId PLUID
+        LogonID = $luid
         AuthData = Format-Pointer $AuthData PVOID
         GetKeyFn = Format-Pointer $GetKeyFn SEC_GET_KEY_FN
         GetKeyArgument = Format-Pointer $GetKeyArgument PVOID

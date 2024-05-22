@@ -4,6 +4,13 @@ using System.Runtime.InteropServices;
 namespace Secur32;
 
 [StructLayout(LayoutKind.Sequential)]
+public struct LUID
+{
+    public int LowPart;
+    public int HighPart;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct SecBufferDesc
 {
     public int ulVersion;
