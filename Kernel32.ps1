@@ -13,12 +13,8 @@ Function Get-SecurityAttributes {
 
         $sd = $null
         if ($sa.lpSecurityDescriptor -ne [IntPtr]::Zero) {
-            $getLengthMeth = if ($this.DetouredModules.Advapi32 -and $this.DetouredModules.Advapi32.ContainsKey('GetSecurityDescriptorLength')) {
-                $this.DetouredModules.Advapi32.GetSecurityDescriptorLength
-            }
-            else {
-                [Kernel32.Methods]::GetSecurityDescriptorLength
-            }
+            $getLengthMeth = Get-PInvokeMethod Advapi32 GetSecurityDescriptorLength
+
             $sdLength = $getLengthMeth.Invoke($sa.lpSecurityDescriptor)
 
             if ($sdLength) {
@@ -157,12 +153,7 @@ Function Get-ProcThreadAttributeList {
                 ) {
                     $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.Value)
 
-                    $methInfo = if ($this.DetouredModules.Kernel32.ContainsKey('GetProcessId')) {
-                        $this.DetouredModules.Kernel32.GetProcessId
-                    }
-                    else {
-                        [Kernel32.Methods]::GetProcessId
-                    }
+                    $methInfo = Get-PInvokeMethod Kernel32 GetProcessId
 
                     # This will be 0 if the handle doesn't have the required rights, nothing
                     # we can do about that.

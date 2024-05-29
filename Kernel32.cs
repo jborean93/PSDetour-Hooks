@@ -262,9 +262,4 @@ public static class Methods
     public static extern int GetProcessId(
         nint Process
     );
-
-    [DllImport("Advapi32.dll")]
-    public static extern int GetSecurityDescriptorLength(
-        nint pSecurityDescriptor
-    );
 }

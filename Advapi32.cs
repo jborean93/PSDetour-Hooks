@@ -79,3 +79,25 @@ public enum SecurityInformation
     UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000,
     UNPROTECTED_SACL_SECURITY_INFORMATION = 0x10000000,
 }
+
+[StructLayout(LayoutKind.Sequential)]
+public struct GENERIC_MAPPING
+{
+    public int GenericRead;
+    public int GenericWrite;
+    public int GenericExecute;
+    public int GenericAll;
+
+}
+
+public static class Methods
+{
+    [DllImport("Advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+        nint SecurityDescriptor,
+        int RequestedStringSDRevision,
+        int SecurityInformation,
+        out nint StringSecurityDescriptor,
+        out int StringSecurityDescriptorLen);
+}

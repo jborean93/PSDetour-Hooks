@@ -1,3 +1,152 @@
+# api-ms-win-security-base-l1-1-0.dll
+New-PSDetourHook -DllName Advapi32.dll -MethodName AccessCheckAndAuditAlarmW {
+    [OutputType([bool])]
+    param (
+        [IntPtr]$SubsystemName,
+        [IntPtr]$HandleId,
+        [IntPtr]$ObjectTypeName,
+        [IntPtr]$ObjectName,
+        [IntPtr]$SecurityDescriptor,
+        [int]$DesiredAccess,
+        [IntPtr]$GenericMapping,
+        [bool]$ObjectCreation,
+        [IntPtr]$GrantedAccess,
+        [IntPtr]$AccessStatus,
+        [IntPtr]$GenerateOnClose
+    )
+
+    <#
+    BOOL AccessCheckAndAuditAlarmW(
+        [in]           LPCWSTR              SubsystemName,
+        [in, optional] LPVOID               HandleId,
+        [in]           LPWSTR               ObjectTypeName,
+        [in, optional] LPWSTR               ObjectName,
+        [in]           PSECURITY_DESCRIPTOR SecurityDescriptor,
+        [in]           DWORD                DesiredAccess,
+        [in]           PGENERIC_MAPPING     GenericMapping,
+        [in]           BOOL                 ObjectCreation,
+        [out]          LPDWORD              GrantedAccess,
+        [out]          LPBOOL               AccessStatus,
+        [out]          LPBOOL               pfGenerateOnClose
+    );
+    #>
+
+    $genericMappingRes = [Ordered]@{
+        Raw = Format-Pointer $GenericMapping PGENERIC_MAPPING
+    }
+    if ($GenericMapping -ne [IntPtr]::Zero) {
+        $rawMapping = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $GenericMapping,
+            [type][Advapi32.GENERIC_MAPPING])
+
+        $genericMappingRes.GenericRead = Format-Enum $rawMapping.GenericRead
+        $genericMappingRes.GenericWrite = Format-Enum $rawMapping.GenericWrite
+        $genericMappingRes.GenericExecute = Format-Enum $rawMapping.GenericExecute
+        $genericMappingRes.GenericAll = Format-Enum $rawMapping.GenericAll
+    }
+
+    $sdRes = [Ordered]@{
+        Raw = Format-Pointer $SecurityDescriptor PSECURITY_DESCRIPTOR
+    }
+    if ($SecurityDescriptor -ne [IntPtr]::Zero) {
+        $methInfo = Get-PInvokeMethod $this Advapi32 ConvertSecurityDescriptorToStringSecurityDescriptorW
+
+        $sddlPointer = [IntPtr]::Zero
+        $sddlLen = 0
+        $res = $methInfo.Invoke(
+            $SecurityDescriptor,
+            1,  # SDDL_REVISION_1
+            0xF00101FF,
+            [ref]$sddlPointer,
+            [ref]$sddlLen); $errMsg = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeErrorMessage()
+
+        try {
+            if ($res) {
+                $sdRes.SDDL = [System.Runtime.InteropServices.Marshal]::PtrToStringUni(
+                    $sddlPointer)
+            }
+            else {
+                $sdRes.Error = $errMsg
+            }
+        }
+        finally {
+            if ($sddlPointer -ne [IntPtr]::Zero) {
+                [PSDetourHooks.Methods]::LocalFree($sddlPointer)
+            }
+        }
+    }
+
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent($false)
+    $currentGroups = $currentUser.Groups | ForEach-Object {
+        try {
+            $groupName = $_.Translate([System.Security.Principal.NTAccount]).Value
+        }
+        catch {
+            $groupName = "Failed to translate SID to name: $_"
+        }
+
+        [PSCustomObject]@{
+            Name = $groupName
+            SID = $_.Value
+        }
+    }
+    Write-FunctionCall -Arguments ([Ordered]@{
+        SubsystemName = Format-WideString $SubsystemName
+        HandleId = Format-Pointer $HandleId
+        ObjectTypeName = Format-WideString $ObjectTypeName
+        ObjectName = Format-WideString $ObjectName
+        SecurityDescriptor = $sdRes
+        DesiredAccess = Format-Enum $DesiredAccess
+        GenericMapping = $genericMappingRes
+        ObjectCreation = $ObjectCreation
+        GrantedAccess = Format-Pointer $GrantedAccess LPDWORD
+        AccessStatus = Format-Pointer $AccessStatus LPBOOL
+        GenerateOnClose = Format-Pointer $GenerateOnClose LPBOOl
+        ThreadIdentity = [Ordered]@{
+            UserName = $currentUser.Name
+            SID = $currentUser.User.Value
+            AuthenticationType = $currentUser.AuthenticationType
+            IsAuthenticated = $currentUser.IsAuthenticated
+            Groups = @($currentGroups)
+        }
+    })
+
+    $res = $this.Invoke(
+        $SubsystemName,
+        $HandleId,
+        $ObjectTypeName,
+        $ObjectName,
+        $SecurityDescriptor,
+        $DesiredAccess,
+        $GenericMapping,
+        $ObjectCreation,
+        $GrantedAccess,
+        $AccessStatus,
+        $GenerateOnClose
+    )
+
+    $grantedAccessRes = $null
+    if ($GrantedAccess -ne [IntPtr]::Zero) {
+        $grantedAccessRes = Format-Enum ([System.Runtime.InteropServices.Marshal]::ReadInt32($GrantedAccess))
+    }
+    $accessStatusRes = $null
+    if ($AccessStatus -ne [IntPtr]::Zero) {
+        $accessStatusRes = [System.Runtime.InteropServices.Marshal]::ReadInt32($AccessStatus) -ne 0
+    }
+    $generateOnCloseRes = $null
+    if ($GenerateOnClose -ne [IntPtr]::Zero) {
+        $generateOnCloseRes = [System.Runtime.InteropServices.Marshal]::ReadInt32($GenerateOnClose) -ne 0
+    }
+
+    Write-FunctionResult -Result $res ([ordered]@{
+        GrantedAccess = $grantedAccessRes
+        AccessStatus = $accessStatusRes
+        GenerateOnClose = $generateOnCloseRes
+    })
+
+    $res
+}
+
 New-PSDetourHook -DllName Advapi32.dll -MethodName CryptGetProvParam {
     [OutputType([bool])]
     param (
@@ -23,8 +172,6 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName CryptGetProvParam {
         $dataLenRes = [System.Runtime.InteropServices.Marshal]::ReadInt32($DataLen)
     }
 
-    $a = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Prov, 160)
-
     Write-FunctionCall -Arguments ([Ordered]@{
         Prov = Format-Pointer $Prov HCRYPTPROV
         Param = Format-Enum $Param ([Advapi32.CryptGetProvParam])
@@ -34,7 +181,6 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName CryptGetProvParam {
             Value = $dataLenRes
         }
         Flags = Format-Enum $Flags
-        Test = Format-Pointer $a
     })
     $res = $this.Invoke($Prov, $Param, $Data, $DataLen, $Flags)
 

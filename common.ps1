@@ -69,6 +69,40 @@ Function Format-FileTime {
     }
 }
 
+Function Get-PInvokeMethod {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]
+        $State,
+
+        [Parameter(Mandatory)]
+        [string]
+        $DllName,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Name
+    )
+
+    if ($State.DetouredModules.ContainsKey($DllName) -and $State.DetouredModules[$DllName].ContainsKey($Name)) {
+        $State.DetouredModules[$DllName][$Name]
+        return
+    }
+
+    $methodClass = "$DllName.Methods" -as [type]
+    if (-not $methodClass) {
+        $methodClass = [PSDetourHooks.Methods]
+    }
+
+    if ($methodClass -and $methodClass.GetMember($Name)) {
+        $methodClass::$Name
+        return
+    }
+
+    throw "Failed to find PInvoke method $DllName.$Name"
+}
+
 Function Write-FunctionCall {
     [CmdletBinding()]
     param (
