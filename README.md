@@ -26,3 +26,5 @@ Install-Module -Name PSDetour, Yayaml -Force -Scope AllUsers
 ```
 
 _note: using AllUsers is needed for the hooked processes to see the modules._
+
+See [Windows API Sets](https://learn.microsoft.com/en-us/uwp/win32-and-com/win32-apis) to find out if an API should be loaded through the DLL name or the API set name.

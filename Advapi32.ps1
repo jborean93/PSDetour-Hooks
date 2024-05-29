@@ -1,5 +1,4 @@
-# api-ms-win-security-base-l1-1-0.dll
-New-PSDetourHook -DllName Advapi32.dll -MethodName AccessCheckAndAuditAlarmW {
+New-PSDetourHook -DllName api-ms-win-security-base-l1-1-0.dll -MethodName AccessCheckAndAuditAlarmW {
     [OutputType([bool])]
     param (
         [IntPtr]$SubsystemName,
@@ -77,7 +76,7 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName AccessCheckAndAuditAlarmW {
     }
 
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent($false)
-    $currentGroups = $currentUser.Groups | ForEach-Object {
+    $currentUser.Groups | ForEach-Object {
         try {
             $groupName = $_.Translate([System.Security.Principal.NTAccount]).Value
         }
@@ -192,8 +191,7 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName CryptGetProvParam {
     $res
 }
 
-# New-PSDetourHook -DllName api-ms-win-security-provider-l1-1-0.dll -MethodName GetNamedSecurityInfoW {
-New-PSDetourHook -DllName Advapi32.dll -MethodName GetNamedSecurityInfoW {
+New-PSDetourHook -DllName api-ms-win-security-provider-l1-1-0.dll -MethodName GetNamedSecurityInfoW {
     [OutputType([int])]
     param (
         [System.Runtime.InteropServices.MarshalAsAttribute([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]

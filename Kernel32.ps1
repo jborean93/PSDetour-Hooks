@@ -336,7 +336,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName CreateProcessAsUserW {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName CreateProcessW {
+New-PSDetourHook -DllName api-ms-win-core-processthreads-l1-1-0 -MethodName CreateProcessW {
     [OutputType([bool])]
     param(
         [IntPtr]$ApplicationName,
@@ -407,7 +407,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName CreateProcessW {
 }
 
 # This is in Advapi32.dll but it shares a lot of common structs with the others so is defined here
-New-PSDetourHook -DllName Advapi32.dll -MethodName CreateProcessWithLogonW {
+New-PSDetourHook -DllName api-ms-win-security-cpwl-l1-1-0.dll -MethodName CreateProcessWithLogonW {
     [OutputType([bool])]
     param(
         [IntPtr]$Username,
@@ -547,7 +547,7 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName CreateProcessWithTokenW {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName GetEnvironmentVariableW {
+New-PSDetourHook -DllName api-ms-win-core-processenvironment-l1-1-0.dll -MethodName GetEnvironmentVariableW {
     [OutputType([int])]
     param(
         [System.Runtime.InteropServices.MarshalAsAttribute([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]
@@ -585,7 +585,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName GetEnvironmentVariableW {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName SetEnvironmentVariableW {
+New-PSDetourHook -DllName api-ms-win-core-processenvironment-l1-1-0.dll -MethodName SetEnvironmentVariableW {
     [OutputType([bool])]
     param(
         [System.Runtime.InteropServices.MarshalAsAttribute([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]
@@ -616,7 +616,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName SetEnvironmentVariableW {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName GetProcessId {
+New-PSDetourHook -DllName api-ms-win-core-processthreads-l1-1-0.dll -MethodName GetProcessId {
     [OutputType([int])]
     param(
         [IntPtr]$Process
@@ -637,7 +637,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName GetProcessId {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName OpenProcess {
+New-PSDetourHook -DllName api-ms-win-core-processthreads-l1-1-0.dll -MethodName OpenProcess {
     [OutputType([IntPtr])]
     param(
         [int]$DesiredAccess,
@@ -664,7 +664,7 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName OpenProcess {
     $res
 }
 
-New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+New-PSDetourHook -DllName api-ms-win-core-synch-l1-2-0.dll -MethodName Sleep -Action {
     param([int]$Milliseconds)
 
     Write-FunctionCall -Arguments ([Ordered]@{
