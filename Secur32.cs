@@ -11,6 +11,25 @@ public struct LUID
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct LSA_STRING
+{
+    public short Length;
+    public short MaximumLength;
+    public nint Buffer;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct QUOTA_LIMITS
+{
+    public nint PagedPoolLimit;
+    public nint NonPagedPoolLimit;
+    public nint MinimumWorkingSetSize;
+    public nint MaximumWorkingSetSize;
+    public nint PagefileLimit;
+    public long TimeLimit;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct SecBufferDesc
 {
     public int ulVersion;
@@ -24,6 +43,27 @@ public struct SecBuffer
     public int cbBuffer;
     public int BufferType;
     public nint pvBuffer;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SID_AND_ATTRIBUTES
+{
+    public nint Sid;
+    public int Attributes;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct TOKEN_GROUPS
+{
+    public int GroupCount;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)] public SID_AND_ATTRIBUTES[] Groups;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct TOKEN_SOURCE
+{
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)] public char[] SourceName;
+    public LUID SourceIdentifier;
 }
 
 [Flags]
@@ -210,8 +250,39 @@ public enum SecBufferFlags
     SECBUFFER_RESERVED = unchecked((int)0x60000000),
 }
 
+public enum SecurityLogonType
+{
+    UndefinedLogonType = 0,
+    Interactive = 2,
+    Network,
+    Batch,
+    Service,
+    Proxy,
+    Unlock,
+    NetworkCleartext,
+    NewCredentials,
+    RemoteInteractive,
+    CachedInteractive,
+    CachedRemoteInteractive,
+    CachedUnlock
+}
+
 public enum TargetDataRep
 {
     SECURITY_NATIVE_DREP = 0x00000010,
     SECURITY_NETWORK_DREP = 0x00000000,
+}
+
+[Flags]
+public enum TokenGroupAttributes
+{
+    SE_GROUP_MANDATORY = 0x00000001,
+    SE_GROUP_ENABLED_BY_DEFAULT = 0x00000002,
+    SE_GROUP_ENABLED = 0x00000004,
+    SE_GROUP_OWNER = 0x00000008,
+    SE_GROUP_USE_FOR_DENY_ONLY = 0x00000010,
+    SE_GROUP_INTEGRITY = 0x00000020,
+    SE_GROUP_INTEGRITY_ENABLED = 0x00000040,
+    SE_GROUP_LOGON_ID = unchecked((int)0xC0000000),
+    SE_GROUP_RESOURCE = 0x20000000,
 }

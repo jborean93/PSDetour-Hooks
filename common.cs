@@ -16,4 +16,8 @@ public static class Methods
     public static extern int GetSecurityDescriptorLength(
         nint pSecurityDescriptor
     );
+
+    [DllImport("Advapi32.dll")]
+    public static extern int LsaNtStatusToWinError(
+        int Status);
 }

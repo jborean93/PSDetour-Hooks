@@ -129,7 +129,14 @@ Function Write-FunctionResult {
         $Result,
 
         [System.Collections.IDictionary]
-        $Info = @{}
+        $Info = @{},
+
+        [int]
+        $LastError,
+
+        [ValidateSet("Win32", "Lsa")]
+        [string]
+        $ErrorType = 'Win32'
     )
 
     $res = [Ordered]@{
@@ -139,5 +146,18 @@ Function Write-FunctionResult {
         Result = $Result
         Info = $Info
     }
+
+    if ($LastError) {
+        $res.Error = Format-Enum $LastError
+
+        if ($ErrorType -eq 'Lsa') {
+            $res.LsaNtStatus = Format-Enum $LastError
+            $methInfo = Get-PInvokeMethod $this Advapi32 LsaNtStatusToWinError
+            $LastError = $methInfo.Invoke($LastError)
+        }
+
+        $res.ErrorMessage = [System.ComponentModel.Win32Exception]::new($LastError).Message
+    }
+
     $this.State.WriteObject($res)
 }

@@ -51,6 +51,24 @@ Function Get-SecBufferDesc {
     $res
 }
 
+Function Get-Luid {
+    [CmdletBinding()]
+    param(
+        [IntPtr]$Luid
+    )
+
+    $res = [Ordered]@{
+        Raw = Format-Pointer $Luid PLUID
+    }
+    if ($Luid -ne [IntPtr]::Zero) {
+        $rawLuid = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.LUID]($Luid)
+        $res.LowPart = $rawLuid.LowPart
+        $res.HighPart = $rawLuid.HighPart
+    }
+
+    $res
+}
+
 New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
     [OutputType([int])]
     param(
@@ -79,20 +97,11 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
     );
     #>
 
-    $luid = [Ordered]@{
-        Raw = Format-Pointer $LogonID PLUID
-    }
-    if ($LogonID -ne [IntPtr]::Zero) {
-        $rawLuid = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.LUID]($LogonID)
-        $luid.LowPart = $rawLuid.LowPart
-        $luid.HighPart = $rawLuid.HighPart
-    }
-
     Write-FunctionCall -Arguments ([Ordered]@{
         Principal = Format-WideString $Principal
         Package = Format-WideString $Package
         CredentialUse = Format-Enum $CredentialUse ([Secur32.CredentialUse])
-        LogonID = $luid
+        LogonID = Get-Luid $LogonId
         AuthData = Format-Pointer $AuthData PVOID
         GetKeyFn = Format-Pointer $GetKeyFn SEC_GET_KEY_FN
         GetKeyArgument = Format-Pointer $GetKeyArgument PVOID
@@ -299,6 +308,208 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
         Message = Get-SecBufferDesc $Message
         Qop = $qopValue
     })
+
+    $res
+}
+
+New-PSDetourHook -DllName Secur32.dll -MethodName LsaLogonUser {
+    [OutputType([int])]
+    param(
+        [IntPtr]$LsaHandle,
+        [IntPtr]$OriginName,
+        [int]$LogonType,
+        [int]$AuthenticationPackage,
+        [IntPtr]$AuthenticationInformation,
+        [int]$AuthenticationInformationLength,
+        [IntPtr]$LocalGroups,
+        [IntPtr]$SourceContext,
+        [IntPtr]$ProfileBuffer,
+        [IntPtr]$ProfileBufferLength,
+        [IntPtr]$LogonId,
+        [IntPtr]$Token,
+        [IntPtr]$Quotas,
+        [IntPtr]$SubStatus
+    )
+
+    <#
+    NTSTATUS LsaLogonUser(
+        [in]           HANDLE              LsaHandle,
+        [in]           PLSA_STRING         OriginName,
+        [in]           SECURITY_LOGON_TYPE LogonType,
+        [in]           ULONG               AuthenticationPackage,
+        [in]           PVOID               AuthenticationInformation,
+        [in]           ULONG               AuthenticationInformationLength,
+        [in, optional] PTOKEN_GROUPS       LocalGroups,
+        [in]           PTOKEN_SOURCE       SourceContext,
+        [out]          PVOID               *ProfileBuffer,
+        [out]          PULONG              ProfileBufferLength,
+        [out]          PLUID               LogonId,
+        [out]          PHANDLE             Token,
+        [out]          PQUOTA_LIMITS       Quotas,
+        [out]          PNTSTATUS           SubStatus
+    );
+    #>
+
+    $originNameRes = [Ordered]@{
+        Raw = Format-Pointer $OriginName PLSA_STRING
+    }
+    if ($OriginName -ne [IntPtr]::Zero) {
+        $originNameRaw = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.LSA_STRING]($OriginName)
+        $originNameRes.Length = $originNameRaw.Length
+        $originNameRes.MaximumLength = $originNameRaw.MaximumLength
+        $originNameRes.Buffer = [Ordered]@{
+            Raw = Format-Pointer $originNameRaw.Buffer PCHAR
+        }
+        if ($originNameRaw.Buffer -ne [IntPtr]::Zero) {
+            $originNameRes.Buffer.Value = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi(
+                $originNameRaw.Buffer,
+                $originNameRaw.Length)
+        }
+    }
+
+    $authInfoRes = [Ordered]@{
+        Raw = Format-Pointer $AuthenticationInformation
+    }
+    if ($AuthenticationInformation -ne [IntPtr]::Zero -and $AuthenticationInformationLength) {
+        $authInfoBuffer = [byte[]]::new($AuthenticationInformationLength)
+        [System.Runtime.InteropServices.Marshal]::Copy(
+            $AuthenticationInformation,
+            $authInfoBuffer,
+            0,
+            $authInfoBuffer.Length)
+        $authInfoRes.Value = [System.Convert]::ToHexString($authInfoBuffer)
+    }
+
+    $localGroupsRes = [Ordered]@{
+        Raw = Format-Pointer $LocalGroups PTOKEN_GROUPS
+    }
+    if ($LocalGroups -ne [IntPtr]::Zero) {
+        $tGroupsRaw = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.TOKEN_GROUPS]($LocalGroups)
+        $localGroupsRes.GroupCount = $tGroupsRaw.GroupCount
+
+        $groups = [System.Collections.Generic.List[object]]::new([int]$tGroupsRaw.GroupCount)
+        $saaPtr = [IntPtr]::Add(
+            $LocalGroups,
+            [System.Runtime.InteropServices.Marshal]::OffsetOf(
+                [Secur32.TOKEN_GROUPS],
+                "Groups"
+            )
+        )
+        for ($i = 0; $i -lt $tGroupsRaw.GroupCount; $i++) {
+            $saa = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.SID_AND_ATTRIBUTES]($saaPtr)
+
+            $sid = [System.Security.Principal.SecurityIdentifier]::new($saa.Sid)
+            try {
+                $groupName = $sid.Translate([System.Security.Principal.NTAccount]).Value
+            }
+            catch [System.Security.Principal.IdentityNotMappedException] {
+                $groupName = $_.Exception.Message
+            }
+
+            $groupInfo = [Ordered]@{
+                Sid = $sid.Value
+                Name = $groupName
+                Attributes = Format-Enum $saa.Attributes ([Secur32.TokenGroupAttributes])
+            }
+            $groups.Add($groupInfo)
+
+            $saaPtr = [IntPtr]::Add(
+                $saaPtr,
+                [System.Runtime.InteropServices.Marshal]::SizeOf[Secur32.SID_AND_ATTRIBUTES]())
+        }
+
+        $localGroupsRes.Groups = $groups
+    }
+
+    $sourceContextRes = [Ordered]@{
+        Raw = Format-Pointer $SourceContext PTOKEN_SOURCE
+    }
+    if ($SourceContext -ne [IntPtr]::Zero) {
+        $sourceContextRaw = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.TOKEN_SOURCE]($SourceContext)
+        $sourceContextRes.SourceName = [string]::new($sourceContextRaw.SourceName).TrimEnd([char]0)
+        $sourceContextRes.SourceIdentifier = [Ordered]@{
+            LowPart = $sourceContextRaw.SourceIdentifier.LowPart
+            HighPart = $sourceContextRaw.SourceIdentifier.HighPart
+        }
+    }
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        LsaHandle = Format-Pointer $LsaHandle HANDLE
+        OriginName = $originNameRes
+        LogonType = Format-Enum $LogonType ([Secur32.SecurityLogonType])
+        AuthenticationPackage = $AuthenticationPackage
+        AuthenticationInformation = $authInfoRes
+        AuthenticationInformationLength = $AuthenticationInformationLength
+        LocalGroups = $localGroupsRes
+        SourceContext = $sourceContextRes
+        ProfileBuffer = Format-Pointer $ProfileBuffer
+        ProfileBufferLength = Format-Pointer $ProfileBufferLength
+        LogonId = Format-Pointer $LogonId
+        Token = Format-Pointer $Token PHANDLE
+        Quotas = Format-Pointer $Quotas PQUOTA_LIMITS
+        SubStatus = Format-Pointer $SubStatus PNTSTATUS
+    })
+
+    $res = $this.Invoke(
+        $LsaHandle,
+        $OriginName,
+        $LogonType,
+        $AuthenticationPackage,
+        $AuthenticationInformation,
+        $AuthenticationInformationLength,
+        $LocalGroups,
+        $SourceContext,
+        $ProfileBuffer,
+        $ProfileBufferLength,
+        $LogonId,
+        $Token,
+        $Quotas,
+        $SubStatus)
+
+    $profileBufferRes = $null
+    if ($ProfileBuffer -ne [IntPtr]::Zero) {
+        $value = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($ProfileBuffer)
+        $profileBufferRes = Format-Pointer $value
+    }
+
+    $profileBufferLengthRes = $null
+    if ($ProfileBufferLength -ne [IntPtr]::Zero) {
+        $profileBufferLengthRes = [System.Runtime.InteropServices.Marshal]::ReadInt32($ProfileBufferLength)
+    }
+
+    $tokenRes = $null
+    if ($Token -ne [IntPtr]::Zero) {
+        $value = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Token)
+        $tokenRes = Format-Pointer $value HANDLE
+    }
+
+    $quotasRes = $null
+    if ($Quotas -ne [IntPtr]::Zero) {
+        $quotasRaw = [System.Runtime.InteropServices.Marshal]::PtrToStructure[Secur32.QUOTA_LIMITS]($Quotas)
+        $quotasRes = [Ordered]@{
+            PagedPoolLimit = [Int64]$quotasRaw.PagedPoolLimit
+            NonPagedPoolLimit = [Int64]$quotasRaw.NonPagedPoolLimit
+            MinimumWorkingSetSize = [Int64]$quotasRaw.MinimumWorkingSetSize
+            MaximumWorkingSetSize = [Int64]$quotasRaw.MaximumWorkingSetSize
+            PagefileLimit = [Int64]$quotasRaw.PagefileLimit
+            TimeLimit = $quotasRaw.TimeLimit
+        }
+    }
+
+    $subStatusRes = $null
+    if ($SubStatus -ne [IntPtr]::Zero) {
+        $value = [System.Runtime.InteropServices.Marshal]::ReadInt32($SubStatus)
+        $subStatusRes = Format-Enum $value
+    }
+
+    Write-FunctionResult -Result $res ([Ordered]@{
+        ProfileBuffer = $profileBufferRes
+        ProfileBufferLength = $profileBufferLengthRes
+        LogonId = Get-Luid $LogonId
+        Token = $tokenRes
+        Quotas = $quotasRes
+        SubStatus = $substatusRes
+    }) -LastError $res -ErrorType Lsa
 
     $res
 }

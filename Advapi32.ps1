@@ -265,3 +265,53 @@ New-PSDetourHook -DllName api-ms-win-security-provider-l1-1-0.dll -MethodName Ge
 
     $res
 }
+
+New-PSDetourHook -DllName Advapi32.dll -MethodName LogonUserW {
+    [OutputType([bool])]
+    param (
+        [System.Runtime.InteropServices.MarshalAsAttribute([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]
+        [string]$UserName,
+        [IntPtr]$Domain,
+        [IntPtr]$Password,
+        [int]$LogonType,
+        [int]$LogonProvider,
+        [IntPtr]$Token
+    )
+
+    <#
+    BOOL LogonUserW(
+        [in]           LPCWSTR lpszUsername,
+        [in, optional] LPCWSTR lpszDomain,
+        [in, optional] LPCWSTR lpszPassword,
+        [in]           DWORD   dwLogonType,
+        [in]           DWORD   dwLogonProvider,
+        [out]          PHANDLE phToken
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        UserName = $UserName
+        Domain = Format-WideString $Domain
+        Password = Format-WideString $Password
+        LogonType = Format-Enum $LogonType ([Advapi32.LogonType])
+        LogonProvider = Format-Enum $LogonProvider ([Advapi32.LogonProvider])
+        Token = Format-Pointer $Token PHANDLE
+    })
+    $res = $this.Invoke(
+        $UserName,
+        $Domain,
+        $Password,
+        $LogonType,
+        $LogonProvider,
+        $Token); $lastError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+
+    $tokenRes = $null
+    if ($Token -ne [IntPtr]::Zero) {
+        $tokenRes = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Token)
+    }
+    Write-FunctionResult -Result $res ([ordered]@{
+        Token = Format-Pointer $tokenRes HANDLE
+    }) $lastError
+
+    $res
+}
