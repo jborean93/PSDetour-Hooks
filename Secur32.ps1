@@ -312,6 +312,77 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
     $res
 }
 
+New-PSDetourHook -DllName Secur32.dll -MethodName MakeSignature {
+    [OutputType([int])]
+    param(
+        [IntPtr]$Context,
+        [int]$Qop,
+        [IntPtr]$Message,
+        [int]$SeqNo
+    )
+
+    <#
+    KSECDDDECLSPEC SECURITY_STATUS SEC_ENTRY MakeSignature(
+        [in]      PCtxtHandle    phContext,
+        [in]      unsigned long  fQOP,
+        [in, out] PSecBufferDesc pMessage,
+        [in]      unsigned long  MessageSeqNo
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Context = Format-Pointer $Context PCtxtHandle
+        Qop = $Qop
+        Message = Get-SecBufferDesc $Message
+        MessageSeqNo = $SeqNo
+    })
+
+    $res = $this.Invoke($Context, $Qop, $Message, $SeqNo)
+
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Message = Get-SecBufferDesc $Message
+    })
+
+    $res
+}
+
+New-PSDetourHook -DllName Secur32.dll -MethodName VerifySignature {
+    [OutputType([int])]
+    param(
+        [IntPtr]$Context,
+        [IntPtr]$Message,
+        [int]$SeqNo,
+        [IntPtr]$Qop
+    )
+
+    <#
+    KSECDDDECLSPEC SECURITY_STATUS SEC_ENTRY VerifySignature(
+        [in]  PCtxtHandle    phContext,
+        [in]  PSecBufferDesc pMessage,
+        [in]  unsigned long  MessageSeqNo,
+        [out] unsigned long  *pfQOP
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        Context = Format-Pointer $Context PCtxtHandle
+        Message = Get-SecBufferDesc $Message
+        MessageSeqNo = $SeqNo
+        Qop = Format-Pointer $Qop
+    })
+
+    $res = $this.Invoke($Context, $Message, $SeqNo, $Qop)
+
+    $qopValue = if ($Qop -ne [IntPtr]::Zero) {
+        [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
+    }
+    Write-FunctionResult -Result $res ([Ordered]@{
+        Qop = $qopValue
+    })
+
+    $res
+}
+
 New-PSDetourHook -DllName Secur32.dll -MethodName LsaLogonUser {
     [OutputType([int])]
     param(
