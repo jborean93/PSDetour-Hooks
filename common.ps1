@@ -38,6 +38,21 @@ Function Format-Enum {
     '0x{0:X8}{1}' -f ([int]$Value, $valueStr)
 }
 
+Function Format-AnsiString {
+    [CmdletBinding()]
+    param([IntPtr]$Value)
+
+    $strValue = $null
+    if ($Value -ne [IntPtr]::Zero) {
+        $strValue = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($Value)
+    }
+
+    [Ordered]@{
+        Raw = Format-Pointer $Value
+        Value = $strValue
+    }
+}
+
 Function Format-WideString {
     [CmdletBinding()]
     param([IntPtr]$Value)

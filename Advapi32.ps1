@@ -315,3 +315,36 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName LogonUserW {
 
     $res
 }
+
+New-PSDetourHook -DllName Advapi32.dll -MethodName OpenSCManagerW {
+    [OutputType([IntPtr])]
+    param (
+        [IntPtr]$MachineName,
+        [IntPtr]$DatabaseName,
+        [int]$DesiredAccess
+    )
+
+    <#
+    SC_HANDLE OpenSCManagerW(
+        [in, optional] LPCWSTR lpMachineName,
+        [in, optional] LPCWSTR lpDatabaseName,
+        [in]           DWORD   dwDesiredAccess
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        MachineName = Format-WideString $MachineName
+        DatabaseName = Format-WideString $DatabaseName
+        DesiredAccess = Format-Enum $DesiredAccess ([Advapi32.SCMRights])
+    })
+    $res = $this.Invoke(
+        $MachineName,
+        $DatabaseName,
+        $DesiredAccess); $lastError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+
+    $resStr = '0x{0:X8}' -f ([int64]$res)
+    Write-FunctionResult -Result $resStr ([ordered]@{
+    }) $lastError
+
+    $res
+}
