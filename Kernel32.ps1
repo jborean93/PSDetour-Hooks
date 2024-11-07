@@ -192,6 +192,14 @@ Function Get-ProcThreadAttributeList {
 
                     $attrValue.Value = Format-Pointer $handle HPCON
                 }
+                elseif (
+                    $attrType -eq [Kernel32.ProcessThreadAttribute]::ProcThreadAttributeChildProcessPolicy -and
+                    $attr.Value -ne [IntPtr]::Zero
+                ) {
+                    $flags = [System.Runtime.InteropServices.Marshal]::ReadInt32($attr.Value)
+
+                    $attrValue.Value = Format-Enum $flags ([Kernel32.ProcessCreationChildProcessFlags])
+                }
 
                 $attrValue
 

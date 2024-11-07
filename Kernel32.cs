@@ -71,6 +71,14 @@ public enum ProcessAccessMask
 }
 
 [Flags]
+public enum ProcessCreationChildProcessFlags
+{
+    PROCESS_CREATION_CHILD_PROCESS_RESTRICTED = 0x01,
+    PROCESS_CREATION_CHILD_PROCESS_OVERRIDE = 0x02,
+    PROCESS_CREATION_CHILD_PROCESS_RESTRICTED_UNLESS_SECURE = 0x04,
+}
+
+[Flags]
 public enum ProcessCreationFlags
 {
     None = 0x00000000,
