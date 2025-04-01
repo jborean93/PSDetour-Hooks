@@ -5,6 +5,8 @@ namespace PSDetourHooks;
 
 public static class Methods
 {
+    public const int CERT_STORE_LOCALIZED_NAME_PROP_ID = 0x1000;
+
     [DllImport("Kernel32.dll")]
     public static extern int GetCurrentThreadId();
 
@@ -20,4 +22,11 @@ public static class Methods
     [DllImport("Advapi32.dll")]
     public static extern int LsaNtStatusToWinError(
         int Status);
+
+    [DllImport("Crypt32.dll")]
+    public static extern bool CertGetStoreProperty(
+        nint hCertStore,
+        int dwPropId,
+        nint pvData,
+        ref int pcbData);
 }

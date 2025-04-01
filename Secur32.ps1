@@ -1,3 +1,188 @@
+Function Get-CertContextData {
+    [CmdletBinding()]
+    param(
+        [Object]$State,
+        [IntPtr]$Raw,
+        [object[]]$Result
+    )
+
+    $getCertStorePropMeth = Get-PInvokeMethod $State Crypt32 CertGetStoreProperty
+
+    $certCredPtr = [IntPtr]::Zero
+    if ($Raw -ne [IntPtr]::Zero) {
+        $certCredPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Raw)
+    }
+
+    for ($i = 0; $i -lt $Result.Length; $i++) {
+        $credInfo = [Ordered]@{
+            Raw = Format-Pointer $certCredPtr PCERT_CONTEXT
+        }
+
+        if ($certCredPtr -ne [IntPtr]::Zero) {
+            $certContext = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+                $certCredPtr,
+                [type][Secur32.CERT_CONTEXT])
+
+            $credInfo.CertEncodingType = Format-Enum $certContext.dwCertEncodingType ([Secur32.CertEncodingType])
+
+            $credInfo.CertEncodedRaw = Format-Pointer $certContext.pbCertEncoded BYTE
+            if ($certContext.pbCertEncoded -ne [IntPtr]::Zero -and $certContext.cbCertEncoded) {
+                $certEncoded = [byte[]]::new($certContext.cbCertEncoded)
+                [System.Runtime.InteropServices.Marshal]::Copy(
+                    $certContext.pbCertEncoded, $certEncoded, 0, $certEncoded.Length)
+            }
+            else {
+                $certEncoded = [byte[]]::new(0)
+            }
+            $credInfo.CertEncoded = [Convert]::ToHexString($certEncoded)
+
+            $credInfo.CertInfo = Format-Pointer $certContext.pCertInfo PCERT_INFO
+
+            $credInfo.CertStore = [Ordered]@{
+                Raw = Format-Pointer $certContext.hCertStore HCERTSTORE
+            }
+            if ($certContext.hCertStore -ne [IntPtr]::Zero) {
+                $nameLength = 0
+                $null = $getCertStorePropMeth.Invoke(
+                    $certContext.hCertStore,
+                    [PSDetourHooks.Methods]::CERT_STORE_LOCALIZED_NAME_PROP_ID,
+                    [IntPtr]::Zero,
+                    [ref]$nameLength)
+
+                $namePtr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($nameLength)
+                try {
+                    $getRes = $getCertStorePropMeth.Invoke(
+                        $certContext.hCertStore,
+                        [PSDetourHooks.Methods]::CERT_STORE_LOCALIZED_NAME_PROP_ID,
+                        $namePtr,
+                        [ref]$nameLength)
+
+                    if ($getRes) {
+                        $credInfo.CertStore.Name = [System.Runtime.InteropServices.Marshal]::PtrToStringUni(
+                            $namePtr,
+                            $nameLength)
+                    }
+                }
+                finally {
+                    [System.Runtime.InteropServices.Marshal]::FreeHGlobal($namePtr)
+                }
+            }
+        }
+
+        $Result[$i] = $credInfo
+        $certCredPtr = [IntPtr]::Add($certCredPtr, [IntPtr]::Size)
+    }
+}
+
+Function Get-CredSspCredLogonData {
+    [CmdletBinding()]
+    param(
+        [Object]$State,
+        [IntPtr]$LogonData,
+        [System.Collections.IDictionary]$Data
+    )
+
+    $typeValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($LogonData)
+    if ($typeValue -eq [Secur32.CredsspSubmitType]::CredsspCredEx) {
+        $Data.StructType = 'CREDSSP_CRED_EX'
+
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.CREDSSP_CRED_EX])
+
+        $Data.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
+        $Data.Version = Format-Enum $cred.Version ([Secur32.CredSspVersion])
+        $Data.Flags = Format-Enum $cred.Flags ([Secur32.CredSspFlags])
+        $Data.Reserved = $cred.Reserved
+        $Data.SchannelCred = Get-LogonData $State $cred.Cred.pSchannelCred Schannel
+        $Data.SpnegoCred = Get-LogonData $State $cred.Cred.pSpnegoCred Negotiate
+    }
+    else {
+        $Data.StructType = 'CREDSSP_CRED'
+
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.CREDSSP_CRED])
+
+        $Data.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
+        $Data.SchannelCred = Get-LogonData $State $cred.pSchannelCred Schannel
+        $Data.SpnegoCred = Get-LogonData $State $cred.pSpnegoCred Negotiate
+    }
+}
+
+Function Get-SchannelLogonData {
+    [CmdletBinding()]
+    param(
+        [Object]$State,
+        [IntPtr]$LogonData,
+        [System.Collections.IDictionary]$Data
+    )
+
+    $version = [System.Runtime.InteropServices.Marshal]::ReadInt32($LogonData)
+    $Data.Version = Format-Enum $version ([Secur32.SchannelCredVersion])
+
+    if ($version -eq [Secur32.SchannelCredVersion]::SCHANNEL_CRED_VERSION) {
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.SCHANNEL_CRED])
+
+        $certCreds = [object[]]::new($cred.cCreds)
+        if ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_CONTEXT) {
+            Get-CertContextData $State $cred.paCred $certCreds
+            $credType = 'PCERT_CONTEXT'
+        }
+        elseif ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH) {
+            $credType = 'LPWSTR'
+        }
+        elseif ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH_STORE) {
+            $credType = 'PSCHANNEL_CERT_HASH_STORE'
+        }
+        else {
+            $credType = 'PVOID'
+        }
+
+        $Data.CredsRaw = Format-Pointer $cred.paCred $credType
+        $Data.Creds = $certCreds
+        $Data.RootStore = Format-Pointer $cred.hRootStore HCERTSTORE
+        $Data.MappersCount = $cred.cMappers
+        $Data.Mappers = Format-Pointer $cred.aphMappers HMAPPER
+        $Data.SupportedAlgsCount = $cred.cSupportedAlgs
+        $Data.SupportedAlgs = Format-Pointer $cred.palgSupportedAlgs ALG_ID
+        $Data.EnabledProtocols = Format-Enum $cred.grbitEnabledProtocols ([Secur32.SchannelProtocols])
+        $Data.MinimumCipherStrength = $cred.dwMinimumCipherStrength
+        $Data.MaximumCipherStrength = $cred.dwMaximumCipherStrength
+        $Data.SessionLifespan = $cred.dwSessionLifespan
+        $Data.Flags = Format-Enum $cred.dwFlags ([Secur32.SchannelCredFlags])
+        $Data.CredFormat = Format-Enum $cred.dwCredFormat ([Secur32.SchannelCredFormat])
+    }
+}
+
+Function Get-LogonData {
+    [CmdletBinding()]
+    param(
+        [Object]$State,
+        [IntPtr]$LogonData,
+        [string]$Package
+    )
+
+    $res = [Ordered]@{
+        Raw = Format-Pointer $LogonData PVOID
+    }
+    if ($LogonData -eq [IntPtr]::Zero) {
+        return $res
+    }
+
+    # [Negotiate, Kerberos, NTLM], [Schannel]
+    if ($Package -eq 'CredSSP') {
+        Get-CredSspCredLogonData $State $LogonData $res
+    }
+    elseif ($Package -eq 'Schannel') {
+        Get-SchannelLogonData $State $LogonData $res
+    }
+
+    $res
+}
+
 Function Get-SecBufferDesc {
     [CmdletBinding()]
     param(
@@ -97,17 +282,19 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcquireCredentialsHandleW {
     );
     #>
 
+    $packageStr = Format-WideString $Package
+
     Write-FunctionCall -Arguments ([Ordered]@{
-        Principal = Format-WideString $Principal
-        Package = Format-WideString $Package
-        CredentialUse = Format-Enum $CredentialUse ([Secur32.CredentialUse])
-        LogonID = Get-Luid $LogonId
-        AuthData = Format-Pointer $AuthData PVOID
-        GetKeyFn = Format-Pointer $GetKeyFn SEC_GET_KEY_FN
-        GetKeyArgument = Format-Pointer $GetKeyArgument PVOID
-        Credential = Format-Pointer $Credential PCredHandle
-        Expiry = Format-Pointer $Expiry PTimeStamp
-    })
+            Principal = Format-WideString $Principal
+            Package = $packageStr
+            CredentialUse = Format-Enum $CredentialUse ([Secur32.CredentialUse])
+            LogonID = Get-Luid $LogonId
+            AuthData = Get-LogonData $this $AuthData $packageStr.Value
+            GetKeyFn = Format-Pointer $GetKeyFn SEC_GET_KEY_FN
+            GetKeyArgument = Format-Pointer $GetKeyArgument PVOID
+            Credential = Format-Pointer $Credential PCredHandle
+            Expiry = Format-Pointer $Expiry PTimeStamp
+        })
 
     $res = $this.Invoke($Principal, $Package, $CredentialUse, $LogonId, $AuthData, $GetKeyFn, $GetKeyArgument,
         $Credential, $Expiry)
@@ -146,16 +333,16 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcceptSecurityContext {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Credential = Format-Pointer $Credential PCredHandle
-        Context = Format-Pointer $Context PCtxtHandle
-        Input = Get-SecBufferDesc $InputBuffer
-        ContextReq = Format-Enum $ContextReq ([Secur32.AscReq])
-        TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
-        NewContext = Format-Pointer $NewContext PCtxtHandle
-        Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
-        ContextAttr = Format-Pointer $ContextAttr
-        Expiry = Format-Pointer $Expiry PTimeStamp
-    })
+            Credential = Format-Pointer $Credential PCredHandle
+            Context = Format-Pointer $Context PCtxtHandle
+            Input = Get-SecBufferDesc $InputBuffer
+            ContextReq = Format-Enum $ContextReq ([Secur32.AscReq])
+            TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
+            NewContext = Format-Pointer $NewContext PCtxtHandle
+            Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
+            ContextAttr = Format-Pointer $ContextAttr
+            Expiry = Format-Pointer $Expiry PTimeStamp
+        })
 
     $res = $this.Invoke($Credential, $Context, $InputBuffer, $ContextReq, $TargetDataRep, $NewContext, $OutputBuffer,
         $ContextAttr, $Expiry)
@@ -166,10 +353,10 @@ New-PSDetourHook -DllName Secur32.dll -MethodName AcceptSecurityContext {
         Format-FileTime $rawExpiry
     }
     Write-FunctionResult -Result $res ([Ordered]@{
-        Output = Get-SecBufferDesc $OutputBuffer
-        ContextAttr = Format-Enum  $contextAttrValue ([Secur32.AscRet])
-        Expiry = $expiryValue
-    })
+            Output = Get-SecBufferDesc $OutputBuffer
+            ContextAttr = Format-Enum $contextAttrValue ([Secur32.AscRet])
+            Expiry = $expiryValue
+        })
 
     $res
 }
@@ -209,19 +396,19 @@ New-PSDetourHook -DllName Secur32.dll -MethodName InitializeSecurityContextW {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Credential = Format-Pointer $Credential PCredHandle
-        Context = Format-Pointer $Context PCtxtHandle
-        TargetName = Format-WideString $TargetName
-        ContextReq = Format-Enum $ContextReq ([Secur32.IscReq])
-        Reserved1 = $Reserved1
-        TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
-        Input = Get-SecBufferDesc $InputBuffer
-        Reserved2 = $Reserved2
-        NewContext = Format-Pointer $NewContext PCtxtHandle
-        Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
-        ContextAttr = Format-Pointer $ContextAttr
-        Expiry = Format-Pointer $Expiry PTimeStamp
-    })
+            Credential = Format-Pointer $Credential PCredHandle
+            Context = Format-Pointer $Context PCtxtHandle
+            TargetName = Format-WideString $TargetName
+            ContextReq = Format-Enum $ContextReq ([Secur32.IscReq])
+            Reserved1 = $Reserved1
+            TargetDataRep = Format-Enum $TargetDataRep ([Secur32.TargetDataRep])
+            Input = Get-SecBufferDesc $InputBuffer
+            Reserved2 = $Reserved2
+            NewContext = Format-Pointer $NewContext PCtxtHandle
+            Output = Get-SecBufferDesc $OutputBuffer -IgnoreValue
+            ContextAttr = Format-Pointer $ContextAttr
+            Expiry = Format-Pointer $Expiry PTimeStamp
+        })
 
     $res = $this.Invoke($Credential, $Context, $TargetName, $ContextReq, $Reserved1, $TargetDataRep, $InputBuffer, $Reserved2,
         $NewContext, $OutputBuffer, $ContextAttr, $Expiry)
@@ -232,10 +419,10 @@ New-PSDetourHook -DllName Secur32.dll -MethodName InitializeSecurityContextW {
         Format-FileTime $rawExpiry
     }
     Write-FunctionResult -Result $res ([Ordered]@{
-        Output = Get-SecBufferDesc $OutputBuffer
-        ContextAttr = Format-Enum $contextAttrValue ([Secur32.IscRet])
-        Expiry = $expiryValue
-    })
+            Output = Get-SecBufferDesc $OutputBuffer
+            ContextAttr = Format-Enum $contextAttrValue ([Secur32.IscRet])
+            Expiry = $expiryValue
+        })
 
     $res
 }
@@ -259,17 +446,17 @@ New-PSDetourHook -DllName Secur32.dll -MethodName EncryptMessage {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Context = Format-Pointer $Context PCtxtHandle
-        Qop = $Qop
-        Message = Get-SecBufferDesc $Message
-        MessageSeqNo = $SeqNo
-    })
+            Context = Format-Pointer $Context PCtxtHandle
+            Qop = $Qop
+            Message = Get-SecBufferDesc $Message
+            MessageSeqNo = $SeqNo
+        })
 
     $res = $this.Invoke($Context, $Qop, $Message, $SeqNo)
 
     Write-FunctionResult -Result $res ([Ordered]@{
-        Message = Get-SecBufferDesc $Message
-    })
+            Message = Get-SecBufferDesc $Message
+        })
 
     $res
 }
@@ -293,11 +480,11 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Context = Format-Pointer $Context PCtxtHandle
-        Message = Get-SecBufferDesc $Message
-        MessageSeqNo = $SeqNo
-        Qop = Format-Pointer $Qop
-    })
+            Context = Format-Pointer $Context PCtxtHandle
+            Message = Get-SecBufferDesc $Message
+            MessageSeqNo = $SeqNo
+            Qop = Format-Pointer $Qop
+        })
 
     $res = $this.Invoke($Context, $Message, $SeqNo, $Qop)
 
@@ -305,9 +492,9 @@ New-PSDetourHook -DllName Secur32.dll -MethodName DecryptMessage {
         [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
     }
     Write-FunctionResult -Result $res ([Ordered]@{
-        Message = Get-SecBufferDesc $Message
-        Qop = $qopValue
-    })
+            Message = Get-SecBufferDesc $Message
+            Qop = $qopValue
+        })
 
     $res
 }
@@ -331,17 +518,17 @@ New-PSDetourHook -DllName Secur32.dll -MethodName MakeSignature {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Context = Format-Pointer $Context PCtxtHandle
-        Qop = $Qop
-        Message = Get-SecBufferDesc $Message
-        MessageSeqNo = $SeqNo
-    })
+            Context = Format-Pointer $Context PCtxtHandle
+            Qop = $Qop
+            Message = Get-SecBufferDesc $Message
+            MessageSeqNo = $SeqNo
+        })
 
     $res = $this.Invoke($Context, $Qop, $Message, $SeqNo)
 
     Write-FunctionResult -Result $res ([Ordered]@{
-        Message = Get-SecBufferDesc $Message
-    })
+            Message = Get-SecBufferDesc $Message
+        })
 
     $res
 }
@@ -365,11 +552,11 @@ New-PSDetourHook -DllName Secur32.dll -MethodName VerifySignature {
     #>
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        Context = Format-Pointer $Context PCtxtHandle
-        Message = Get-SecBufferDesc $Message
-        MessageSeqNo = $SeqNo
-        Qop = Format-Pointer $Qop
-    })
+            Context = Format-Pointer $Context PCtxtHandle
+            Message = Get-SecBufferDesc $Message
+            MessageSeqNo = $SeqNo
+            Qop = Format-Pointer $Qop
+        })
 
     $res = $this.Invoke($Context, $Message, $SeqNo, $Qop)
 
@@ -377,8 +564,8 @@ New-PSDetourHook -DllName Secur32.dll -MethodName VerifySignature {
         [System.Runtime.InteropServices.Marshal]::ReadInt32($Qop)
     }
     Write-FunctionResult -Result $res ([Ordered]@{
-        Qop = $qopValue
-    })
+            Qop = $qopValue
+        })
 
     $res
 }
@@ -505,21 +692,21 @@ New-PSDetourHook -DllName Secur32.dll -MethodName LsaLogonUser {
     }
 
     Write-FunctionCall -Arguments ([Ordered]@{
-        LsaHandle = Format-Pointer $LsaHandle HANDLE
-        OriginName = $originNameRes
-        LogonType = Format-Enum $LogonType ([Secur32.SecurityLogonType])
-        AuthenticationPackage = $AuthenticationPackage
-        AuthenticationInformation = $authInfoRes
-        AuthenticationInformationLength = $AuthenticationInformationLength
-        LocalGroups = $localGroupsRes
-        SourceContext = $sourceContextRes
-        ProfileBuffer = Format-Pointer $ProfileBuffer
-        ProfileBufferLength = Format-Pointer $ProfileBufferLength
-        LogonId = Format-Pointer $LogonId
-        Token = Format-Pointer $Token PHANDLE
-        Quotas = Format-Pointer $Quotas PQUOTA_LIMITS
-        SubStatus = Format-Pointer $SubStatus PNTSTATUS
-    })
+            LsaHandle = Format-Pointer $LsaHandle HANDLE
+            OriginName = $originNameRes
+            LogonType = Format-Enum $LogonType ([Secur32.SecurityLogonType])
+            AuthenticationPackage = $AuthenticationPackage
+            AuthenticationInformation = $authInfoRes
+            AuthenticationInformationLength = $AuthenticationInformationLength
+            LocalGroups = $localGroupsRes
+            SourceContext = $sourceContextRes
+            ProfileBuffer = Format-Pointer $ProfileBuffer
+            ProfileBufferLength = Format-Pointer $ProfileBufferLength
+            LogonId = Format-Pointer $LogonId
+            Token = Format-Pointer $Token PHANDLE
+            Quotas = Format-Pointer $Quotas PQUOTA_LIMITS
+            SubStatus = Format-Pointer $SubStatus PNTSTATUS
+        })
 
     $res = $this.Invoke(
         $LsaHandle,
@@ -574,13 +761,13 @@ New-PSDetourHook -DllName Secur32.dll -MethodName LsaLogonUser {
     }
 
     Write-FunctionResult -Result $res ([Ordered]@{
-        ProfileBuffer = $profileBufferRes
-        ProfileBufferLength = $profileBufferLengthRes
-        LogonId = Get-Luid $LogonId
-        Token = $tokenRes
-        Quotas = $quotasRes
-        SubStatus = $substatusRes
-    }) -LastError $res -ErrorType Lsa
+            ProfileBuffer = $profileBufferRes
+            ProfileBufferLength = $profileBufferLengthRes
+            LogonId = Get-Luid $LogonId
+            Token = $tokenRes
+            Quotas = $quotasRes
+            SubStatus = $substatusRes
+        }) -LastError $res -ErrorType Lsa
 
     $res
 }
