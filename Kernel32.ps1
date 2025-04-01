@@ -672,6 +672,53 @@ New-PSDetourHook -DllName api-ms-win-core-processthreads-l1-1-0.dll -MethodName 
     $res
 }
 
+New-PSDetourHook -DllName api-ms-win-core-console-l2-1-0.dll -MethodName ReadConsoleOutputW {
+    [OutputType([bool])]
+    param(
+        [IntPtr]$ConsoleOutput,
+        [IntPtr]$Buffer,
+        [Kernel32.COORD]$BufferSize,
+        [Kernel32.COORD]$BufferCoord,
+        [IntPtr]$ReadRegion
+    )
+
+    <#
+    BOOL WINAPI ReadConsoleOutput(
+        _In_    HANDLE      hConsoleOutput,
+        _Out_   PCHAR_INFO  lpBuffer,
+        _In_    COORD       dwBufferSize,
+        _In_    COORD       dwBufferCoord,
+        _Inout_ PSMALL_RECT lpReadRegion
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+            ConsoleOutput = Format-Pointer $ConsoleOutput HANDLE
+            Buffer = Format-Pointer $Buffer PCHAR_INFO
+            BufferSize = [Ordered]@{
+                X = $BufferSize.X
+                Y = $BufferSize.Y
+            }
+            BufferCoord = [Ordered]@{
+                X = $BufferCoord.X
+                Y = $BufferCoord.Y
+            }
+            ReadRegion = Format-Pointer $ReadRegion PSMALL_RECT
+        })
+
+    $res = $this.Invoke(
+        $ConsoleOutput,
+        $Buffer,
+        $BufferSize,
+        $bufferCoord,
+        $ReadRegion)
+
+    $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    Write-FunctionResult -Result $res -LastError $err
+
+    $res
+}
+
 New-PSDetourHook -DllName api-ms-win-core-synch-l1-2-0.dll -MethodName Sleep -Action {
     param([int]$Milliseconds)
 
