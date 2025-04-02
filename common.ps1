@@ -40,11 +40,16 @@ Function Format-Enum {
 
 Function Format-AnsiString {
     [CmdletBinding()]
-    param([IntPtr]$Value)
+    param([IntPtr]$Value, [int]$CharCount = -1)
 
     $strValue = $null
     if ($Value -ne [IntPtr]::Zero) {
-        $strValue = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($Value)
+        $strValue = if ($CharCount -ge 0) {
+            [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($Value, $CharCount)
+        }
+        else {
+            [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($Value)
+        }
     }
 
     [Ordered]@{
@@ -55,11 +60,16 @@ Function Format-AnsiString {
 
 Function Format-WideString {
     [CmdletBinding()]
-    param([IntPtr]$Value)
+    param([IntPtr]$Value, [int]$CharCount = -1)
 
     $strValue = $null
     if ($Value -ne [IntPtr]::Zero) {
-        $strValue = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Value)
+        $strValue = if ($CharCount -ge 0) {
+            [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Value, $CharCount)
+        }
+        else {
+            [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Value)
+        }
     }
 
     [Ordered]@{

@@ -77,6 +77,68 @@ public struct SCHANNEL_CRED
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct SCH_CREDENTIALS
+{
+    public int dwVersion;
+    public SchannelCredFormat dwCredFormat;
+    public int cCreds;
+    public nint paCred;
+    public nint hRootStore;
+    public int cMappers;
+    public nint aphMappers;
+    public int dwSessionLifespan;
+    public SchannelCredFlags dwFlags;
+    public int cTlsParameters;
+    public nint pTlsParameters;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_IDENTITY
+{
+    public nint User;
+    public int UserLength;
+    public nint Domain;
+    public int DomainLength;
+    public nint Password;
+    public int PasswordLength;
+    public int Flags;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_IDENTITY_EX
+{
+    public int Version;
+    public int Length;
+    public nint User;
+    public int UserLength;
+    public nint Domain;
+    public int DomainLength;
+    public nint Password;
+    public int PasswordLength;
+    public int Flags;
+    public nint PackageList;
+    public int PackageListLength;
+}
+
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_IDENTITY_EX2
+{
+    public int Version;
+    public short cbHeaderLength;
+    public int sbStructureLength;
+    public int UserOffset;
+    public short UserLength;
+    public int DomainOffset;
+    public short DomainLength;
+    public int PackedCredentialsOffset;
+    public short PackedCredentialsLength;
+    public int Flags;
+    public int PackageListOffset;
+    public short PackageListLength;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct SecBufferDesc
 {
     public int ulVersion;
@@ -637,4 +699,31 @@ public enum TokenGroupAttributes
     SE_GROUP_INTEGRITY_ENABLED = 0x00000040,
     SE_GROUP_LOGON_ID = unchecked((int)0xC0000000),
     SE_GROUP_RESOURCE = 0x20000000,
+}
+
+[Flags]
+public enum WinNTAuthIdentityFlags
+{
+    SEC_WINNT_AUTH_IDENTITY_ANSI = 0x00000001,
+    SEC_WINNT_AUTH_IDENTITY_UNICODE = 0x00000002,
+    SEC_WINNT_AUTH_IDENTITY_MARSHALLED = 0x00000004,
+    SEC_WINNT_AUTH_IDENTITY_ONLY = 0x00000008,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_PROCESS_ENCRYPTED = 0x00000010,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SYSTEM_PROTECTED = 0x00000020,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_USER_PROTECTED = 0x00000040,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SYSTEM_ENCRYPTED = 0x00000080,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_RESERVED = 0x00010000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_NULL_USER = 0x00020000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_NULL_DOMAIN = 0x00040000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_ID_PROVIDER = 0x00080000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SSPIPFC_CREDPROV_DO_NOT_LOAD = 0x10000000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SSPIPFC_NO_CHECKBOX = 0x20000000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SSPIPFC_SAVE_CRED_CHECKED = 0x40000000,
+    SEC_WINNT_AUTH_IDENTITY_FLAGS_SSPIPFC_CREDPROV_DO_NOT_SAVE = unchecked((int)0x80000000),
+}
+
+public enum WinNTAuthIdentityVersion
+{
+    SEC_WINNT_AUTH_IDENTITY_VERSION = 0x200,
+    SEC_WINNT_AUTH_IDENTITY_VERSION_2 = 0x201,
 }

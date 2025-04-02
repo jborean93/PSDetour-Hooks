@@ -1,26 +1,41 @@
-Function Get-CertContextData {
+Function Get-SchannelCertCredentialData {
     [CmdletBinding()]
     param(
         [Object]$State,
-        [IntPtr]$Raw,
-        [object[]]$Result
+        [IntPtr]$Ptr,
+        [int]$Size,
+        [int]$CredFormat
     )
 
-    $getCertStorePropMeth = Get-PInvokeMethod $State Crypt32 CertGetStoreProperty
-
-    $certCredPtr = [IntPtr]::Zero
-    if ($Raw -ne [IntPtr]::Zero) {
-        $certCredPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Raw)
+    if ($Ptr -eq [IntPtr]::Zero) {
+        return [Ordered]@{
+            Raw = Format-Pointer $Ptr PVOID
+            Size = $Size
+        }
     }
 
-    for ($i = 0; $i -lt $Result.Length; $i++) {
-        $credInfo = [Ordered]@{
-            Raw = Format-Pointer $certCredPtr PCERT_CONTEXT
+    if ($CredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_CONTEXT) {
+        $data = [Ordered]@{
+            Raw = Format-Pointer $Ptr PCERT_CONTEXT[]
+            Certs = [object[]]::new($Size)
         }
 
-        if ($certCredPtr -ne [IntPtr]::Zero) {
+        $getCertStorePropMeth = Get-PInvokeMethod $State Crypt32 CertGetStoreProperty
+
+        $certCredPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Ptr)
+        for ($i = 0; $i -lt $Size; $i++) {
+            $data.Certs[$i] = $credInfo = [Ordered]@{
+                Raw = Format-Pointer $certCredPtr PCERT_CONTEXT
+            }
+            $currentPtr = $certCredPtr
+            $certCredPtr = [IntPtr]::Add($certCredPtr, [IntPtr]::Size)
+
+            if ($currentPtr -eq [IntPtr]::Zero) {
+                continue
+            }
+
             $certContext = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
-                $certCredPtr,
+                $currentPtr,
                 [type][Secur32.CERT_CONTEXT])
 
             $credInfo.CertEncodingType = Format-Enum $certContext.dwCertEncodingType ([Secur32.CertEncodingType])
@@ -68,93 +83,206 @@ Function Get-CertContextData {
                 }
             }
         }
-
-        $Result[$i] = $credInfo
-        $certCredPtr = [IntPtr]::Add($certCredPtr, [IntPtr]::Size)
     }
+    elseif ($CredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH) {
+        $data = [Ordered]@{
+            Raw = Format-Pointer $Ptr LPWSTR
+            Size = $Size
+        }
+    }
+    elseif ($CredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH_STORE) {
+        $data = [Ordered]@{
+            Raw = Format-Pointer $Ptr PSCHANNEL_CERT_HASH_STORE
+            Size = $Size
+        }
+    }
+    else {
+        $data = [Ordered]@{
+            Raw = Format-Point $Ptr PVOID
+            Size = $Size
+        }
+    }
+
+    $data
 }
 
 Function Get-CredSspCredLogonData {
     [CmdletBinding()]
     param(
         [Object]$State,
-        [IntPtr]$LogonData,
-        [System.Collections.IDictionary]$Data
+        [IntPtr]$LogonData
     )
 
     $typeValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($LogonData)
     if ($typeValue -eq [Secur32.CredsspSubmitType]::CredsspCredEx) {
-        $Data.StructType = 'CREDSSP_CRED_EX'
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PCREDSSP_CRED_EX
+        }
 
         $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
             $LogonData,
             [type][Secur32.CREDSSP_CRED_EX])
 
-        $Data.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
-        $Data.Version = Format-Enum $cred.Version ([Secur32.CredSspVersion])
-        $Data.Flags = Format-Enum $cred.Flags ([Secur32.CredSspFlags])
-        $Data.Reserved = $cred.Reserved
-        $Data.SchannelCred = Get-LogonData $State $cred.Cred.pSchannelCred Schannel
-        $Data.SpnegoCred = Get-LogonData $State $cred.Cred.pSpnegoCred Negotiate
+        $res.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
+        $res.Version = Format-Enum $cred.Version ([Secur32.CredSspVersion])
+        $res.Flags = Format-Enum $cred.Flags ([Secur32.CredSspFlags])
+        $res.Reserved = $cred.Reserved
+        $res.SchannelCred = Get-LogonData $State $cred.Cred.pSchannelCred Schannel
+        $res.SpnegoCred = Get-LogonData $State $cred.Cred.pSpnegoCred Negotiate
     }
     else {
-        $Data.StructType = 'CREDSSP_CRED'
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PCREDSSP_CRED
+        }
 
         $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
             $LogonData,
             [type][Secur32.CREDSSP_CRED])
 
-        $Data.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
-        $Data.SchannelCred = Get-LogonData $State $cred.pSchannelCred Schannel
-        $Data.SpnegoCred = Get-LogonData $State $cred.pSpnegoCred Negotiate
+        $res.Type = Format-Enum $cred.Type ([Secur32.CredsspSubmitType])
+        $res.SchannelCred = Get-LogonData $State $cred.pSchannelCred Schannel
+        $res.SpnegoCred = Get-LogonData $State $cred.pSpnegoCred Negotiate
     }
+
+    $res
 }
 
 Function Get-SchannelLogonData {
     [CmdletBinding()]
     param(
         [Object]$State,
-        [IntPtr]$LogonData,
-        [System.Collections.IDictionary]$Data
+        [IntPtr]$LogonData
     )
 
     $version = [System.Runtime.InteropServices.Marshal]::ReadInt32($LogonData)
-    $Data.Version = Format-Enum $version ([Secur32.SchannelCredVersion])
 
     if ($version -eq [Secur32.SchannelCredVersion]::SCHANNEL_CRED_VERSION) {
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PSCHANNEL_CRED
+        }
+
         $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
             $LogonData,
             [type][Secur32.SCHANNEL_CRED])
 
-        $certCreds = [object[]]::new($cred.cCreds)
-        if ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_CONTEXT) {
-            Get-CertContextData $State $cred.paCred $certCreds
-            $credType = 'PCERT_CONTEXT'
-        }
-        elseif ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH) {
-            $credType = 'LPWSTR'
-        }
-        elseif ($cred.dwCredFormat -eq [Secur32.SchannelCredFormat]::SCH_CRED_FORMAT_CERT_HASH_STORE) {
-            $credType = 'PSCHANNEL_CERT_HASH_STORE'
-        }
-        else {
-            $credType = 'PVOID'
+        $res.Version = Format-Enum $cred.dwVersion ([Secur32.SchannelCredVersion])
+        $res.Creds = Get-SchannelCertCredentialData $State $cred.paCred $cred.cCreds $cred.dwCredFormat
+        $res.RootStore = Format-Pointer $cred.hRootStore HCERTSTORE
+        $res.MappersCount = $cred.cMappers
+        $res.Mappers = Format-Pointer $cred.aphMappers HMAPPER
+        $res.SupportedAlgsCount = $cred.cSupportedAlgs
+        $res.SupportedAlgs = Format-Pointer $cred.palgSupportedAlgs ALG_ID
+        $res.EnabledProtocols = Format-Enum $cred.grbitEnabledProtocols ([Secur32.SchannelProtocols])
+        $res.MinimumCipherStrength = $cred.dwMinimumCipherStrength
+        $res.MaximumCipherStrength = $cred.dwMaximumCipherStrength
+        $res.SessionLifespan = $cred.dwSessionLifespan
+        $res.Flags = Format-Enum $cred.dwFlags ([Secur32.SchannelCredFlags])
+        $res.CredFormat = Format-Enum $cred.dwCredFormat ([Secur32.SchannelCredFormat])
+    }
+    elseif ($version -eq [Secur32.SchannelCredVersion]::SCH_CREDENTIALS_VERSION) {
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PSCH_CREDENTIALS
         }
 
-        $Data.CredsRaw = Format-Pointer $cred.paCred $credType
-        $Data.Creds = $certCreds
-        $Data.RootStore = Format-Pointer $cred.hRootStore HCERTSTORE
-        $Data.MappersCount = $cred.cMappers
-        $Data.Mappers = Format-Pointer $cred.aphMappers HMAPPER
-        $Data.SupportedAlgsCount = $cred.cSupportedAlgs
-        $Data.SupportedAlgs = Format-Pointer $cred.palgSupportedAlgs ALG_ID
-        $Data.EnabledProtocols = Format-Enum $cred.grbitEnabledProtocols ([Secur32.SchannelProtocols])
-        $Data.MinimumCipherStrength = $cred.dwMinimumCipherStrength
-        $Data.MaximumCipherStrength = $cred.dwMaximumCipherStrength
-        $Data.SessionLifespan = $cred.dwSessionLifespan
-        $Data.Flags = Format-Enum $cred.dwFlags ([Secur32.SchannelCredFlags])
-        $Data.CredFormat = Format-Enum $cred.dwCredFormat ([Secur32.SchannelCredFormat])
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.SCH_CREDENTIALS])
+
+        $res.Version = Format-Enum $cred.dwVersion ([Secur32.SchannelCredVersion])
+        $res.CredFormat = Format-Enum $cred.dwCredFormat ([Secur32.SchannelCredFormat])
+        $res.Creds = Get-SchannelCertCredentialData $State $cred.paCred $cred.cCreds $cred.dwCredFormat
+        $res.RootStore = Format-Pointer $cred.hRootStore HCERTSTORE
+        $res.MappersCount = $cred.cMappers
+        $res.Mappers = Format-Pointer $cred.aphMappers HMAPPER
+        $res.SessionLifespan = $cred.dwSessionLifespan
+        $res.Flags = Format-Enum $cred.dwFlags ([Secur32.SchannelCredFlags])
+        $res.TlsParametersCount = $cred.cTlsParameters
+        $res.TlsParametersRaw = Format-Pointer $cred.pTlsParameters PTLS_PARAMETERS
     }
+    else {
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PVOID
+            Version = Format-Enum $version ([Secur32.SchannelCredVersion])
+        }
+    }
+
+    $res
+}
+
+Function Get-WinNTAuthIdentityData {
+    [CmdletBinding()]
+    param(
+        [Object]$State,
+        [IntPtr]$LogonData
+    )
+
+    $firstField = [System.Runtime.InteropServices.Marshal]::ReadInt32($LogonData)
+    if ($firstField -eq [Secur32.WinNTAuthIdentityVersion]::SEC_WINNT_AUTH_IDENTITY_VERSION) {
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.SEC_WINNT_AUTH_IDENTITY_EX])
+        $stringUnpack = if ($cred.Flags -band [Secur32.WinNTAuthIdentityFlags]::SEC_WINNT_AUTH_IDENTITY_UNICODE) {
+            ${function:Format-WideString}
+        }
+        else {
+            ${function:Format-AnsiString}
+        }
+
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PSEC_WINNT_AUTH_IDENTITY_EX2
+            Version = Format-Enum $cred.Version
+            Length = $cred.Length
+            User = &$stringUnpack $cred.User $cred.UserLength
+            Domain = &$stringUnpack $cred.Domain $cred.DomainLength
+            Password = &$stringUnpack $cred.Password $cred.PasswordLength
+            Flags = Format-Enum $cred.Flags ([Secur32.WinNTAuthIdentityFlags])
+            PackageList = &$stringUnpack $cred.PackageList $cred.PackageListLength
+        }
+    }
+    elseif ($firstField -eq [Secur32.WinNTAuthIdentityVersion]::SEC_WINNT_AUTH_IDENTITY_VERSION_2) {
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.SEC_WINNT_AUTH_IDENTITY_EX2])
+        $stringUnpack = if ($cred.Flags -band [Secur32.WinNTAuthIdentityFlags]::SEC_WINNT_AUTH_IDENTITY_UNICODE) {
+            ${function:Format-WideString}
+        }
+        else {
+            ${function:Format-AnsiString}
+        }
+
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PSEC_WINNT_AUTH_IDENTITY_EX2
+            Version = Format-Enum $cred.Version
+            HeaderLength = $cred.cbHeaderLength
+            StructureLength = $cred.cbStructureLength
+            # User = &$stringUnpack $cred.User $cred.UserLength
+            # Domain = &$stringUnpack $cred.Domain $cred.DomainLength
+            # PackedCredentials = &$stringUnpack $cred.Password $cred.PasswordLength
+            Flags = Format-Enum $cred.Flags ([Secur32.WinNTAuthIdentityFlags])
+            # PackageList = &$stringUnpack $cred.PackageList $cred.PackageListLength
+        }
+    }
+    else {
+        $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+            $LogonData,
+            [type][Secur32.SEC_WINNT_AUTH_IDENTITY])
+        $stringUnpack = if ($cred.Flags -band [Secur32.WinNTAuthIdentityFlags]::SEC_WINNT_AUTH_IDENTITY_UNICODE) {
+            ${function:Format-WideString}
+        }
+        else {
+            ${function:Format-AnsiString}
+        }
+
+        $res = [Ordered]@{
+            Raw = Format-Pointer $LogonData PSEC_WINNT_AUTH_IDENTITY
+            User = &$stringUnpack $cred.User $cred.UserLength
+            Domain = &$stringUnpack $cred.Domain $cred.DomainLength
+            Password = &$stringUnpack $cred.Password $cred.PasswordLength
+            Flags = Format-Enum $cred.Flags ([Secur32.WinNTAuthIdentityFlags])
+        }
+    }
+
+    $res
 }
 
 Function Get-LogonData {
@@ -165,22 +293,21 @@ Function Get-LogonData {
         [string]$Package
     )
 
-    $res = [Ordered]@{
-        Raw = Format-Pointer $LogonData PVOID
-    }
     if ($LogonData -eq [IntPtr]::Zero) {
-        return $res
+        return [Ordered]@{
+            Raw = Format-Pointer $LogonData PVOID
+        }
     }
 
-    # [Negotiate, Kerberos, NTLM], [Schannel]
     if ($Package -eq 'CredSSP') {
-        Get-CredSspCredLogonData $State $LogonData $res
+        Get-CredSspCredLogonData $State $LogonData
     }
-    elseif ($Package -eq 'Schannel') {
-        Get-SchannelLogonData $State $LogonData $res
+    elseif ($Package -in @('Schannel', 'Microsoft Unified Security Protocol Provider')) {
+        Get-SchannelLogonData $State $LogonData
     }
-
-    $res
+    elseif ($Package -in @('Kerberos', 'Negotiate', 'NTLM')) {
+        Get-WinNTAuthIdentityData $State $LogonData
+    }
 }
 
 Function Get-SecBufferDesc {

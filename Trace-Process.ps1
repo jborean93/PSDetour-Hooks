@@ -1,13 +1,21 @@
 #Requires -Module PSDetour
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "ProcessId")]
 param (
     [Parameter(Mandatory)]
     [System.Collections.IDictionary]$Metadata,
 
-    [Parameter()]
+    [Parameter(Mandatory, ParameterSetName = "ProcessId")]
     [Alias("Id")]
-    [int]$ProcessId = 0,
+    [int]$ProcessId,
+
+    [Parameter(Mandatory, ParameterSetName = "Service")]
+    [string]
+    $Service,
+
+    [Parameter(ParameterSetName = "Service")]
+    [switch]
+    $RestartService,
 
     [Parameter()]
     [ValidateSet('Raw', 'Yaml')]
@@ -23,8 +31,24 @@ $traceParams = @{
     CSharpToLoad = [System.Collections.Generic.List[string]]::new()
 }
 
-if ($ProcessId) {
+if ($PSCmdlet.ParameterSetName -eq 'ProcessId') {
     $traceParams.ProcessId = $ProcessId
+}
+else {
+    if ($RestartService) {
+        Restart-Service -Name $Service -Force -ErrorAction Stop
+    }
+
+    $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter "Name='$Service'" -Property ProcessId -ErrorAction Stop
+    if (-not $serviceInfo) {
+        throw "Failed to find process for service '$Service', is it running?"
+    }
+
+    # WMI returns a UInt32, we want the signed equivalent of it. We cannot
+    # cast as any UInt32 > Int32.MaxValue will fail.
+    $traceParams.ProcessId = [Convert]::ToInt32(
+        [Convert]::ToString($serviceInfo.ProcessId, 16),
+        16)
 }
 
 $commonScriptPath = Join-Path $PSScriptRoot common.ps1
