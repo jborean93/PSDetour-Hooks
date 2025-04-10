@@ -93,6 +93,20 @@ public struct SCH_CREDENTIALS
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_BYTE_VECTOR
+{
+    public int ByteArrayOffset;
+    public short ByteArrayLength;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_DATA
+{
+    public Guid CredType;
+    public SEC_WINNT_AUTH_BYTE_VECTOR CredData;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct SEC_WINNT_AUTH_IDENTITY
 {
     public nint User;
@@ -126,7 +140,7 @@ public struct SEC_WINNT_AUTH_IDENTITY_EX2
 {
     public int Version;
     public short cbHeaderLength;
-    public int sbStructureLength;
+    public int cbStructureLength;
     public int UserOffset;
     public short UserLength;
     public int DomainOffset;
@@ -136,6 +150,14 @@ public struct SEC_WINNT_AUTH_IDENTITY_EX2
     public int Flags;
     public int PackageListOffset;
     public short PackageListLength;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SEC_WINNT_AUTH_PACKED_CREDENTIALS
+{
+    public short cbHeaderLength;
+    public short cbStructureLength;
+    public SEC_WINNT_AUTH_DATA AuthData;
 }
 
 [StructLayout(LayoutKind.Sequential)]

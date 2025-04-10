@@ -243,11 +243,77 @@ Function Get-WinNTAuthIdentityData {
         $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
             $LogonData,
             [type][Secur32.SEC_WINNT_AUTH_IDENTITY_EX2])
-        $stringUnpack = if ($cred.Flags -band [Secur32.WinNTAuthIdentityFlags]::SEC_WINNT_AUTH_IDENTITY_UNICODE) {
-            ${function:Format-WideString}
+        $stringUnpack, $charSize = if ($cred.Flags -band [Secur32.WinNTAuthIdentityFlags]::SEC_WINNT_AUTH_IDENTITY_UNICODE) {
+            ${function:Format-WideString}, 2
         }
         else {
-            ${function:Format-AnsiString}
+            ${function:Format-AnsiString}, 1
+        }
+
+        $getStringValue = {
+            param($Offset, $Length)
+
+            $ptr = [IntPtr]::Zero
+            if ($Offset -and $Length) {
+                $ptr = [IntPtr]::Add($LogonData, $Offset)
+            }
+
+            $value = & $stringUnpack $ptr ($Length / $charSize)
+            $value.Insert(0, 'Offset', $Offset)
+            $value.Insert(1, 'Length', $Length)
+
+            $value
+        }
+
+        $packedCred = [Ordered]@{
+            Offset = $cred.PackedCredentialsOffset
+            Length = $cred.PackedCredentialsLength
+        }
+        if (
+            $cred.PackedCredentialsOffset -and
+            $cred.PackedCredentialsLength -and
+            $cred.PackedCredentialsLength -gt ([System.Runtime.InteropServices.Marshal]::SizeOf([type][Secur32.SEC_WINNT_AUTH_PACKED_CREDENTIALS]))
+        ) {
+            $credPtr = [IntPtr]::Add($LogonData, $cred.PackedCredentialsOffset)
+            $packedCredRaw = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+                $credPtr,
+                [type][Secur32.SEC_WINNT_AUTH_PACKED_CREDENTIALS])
+
+            $credType = switch ($packedCredRaw.AuthData.CredType) {
+                '28BFC32F-10F6-4738-98D1-1AC061DF716A' { "SEC_WINNT_AUTH_DATA_TYPE_PASSWORD - $_" }
+                '235F69AD-73FB-4dbc-8203-0629E739339B' { "SEC_WINNT_AUTH_DATA_TYPE_CERT - $_" }
+                '7CB72412-1016-491A-8C87-4D2AA1B7DD3A' { "SEC_WINNT_AUTH_DATA_TYPE_CREDMAN_CERT - $_" }
+                '10A47879-5EBF-4B85-BD8D-C21BB4F49C8A' { "SEC_WINNT_AUTH_DATA_TYPE_NGC - $_" }
+                '32E8F8D7-7871-4BCC-83C5-460F66C6135C' { "SEC_WINNT_AUTH_DATA_TYPE_FIDO - $_" }
+                'D587AAE8-F78F-4455-A112-C934BEEE7CE1' { "SEC_WINNT_AUTH_DATA_TYPE_KEYTAB - $_" }
+                '12E52E0F-6F9B-4F83-9020-9DE42B226267' { "SEC_WINNT_AUTH_DATA_TYPE_DELEGATION_TOKEN - $_" }
+                '68FD9879-079C-4dfe-8281-578AADC1C100' { "SEC_WINNT_AUTH_DATA_TYPE_CSP_DATA - $_" }
+                'B86C4FF3-49D7-4DC4-B560-B1163685B236' { "SEC_WINNT_AUTH_DATA_TYPE_SMARTCARD_CONTEXTS - $_" }
+                default { $_ }
+            }
+
+            $credData = [byte[]]::new($packedCredRaw.AuthData.CredData.ByteArrayLength)
+            $credDataPtr = [IntPtr]::Zero
+            if ($packedCredRaw.AuthData.CredData.ByteArrayOffset) {
+                $credDataPtr = [IntPtr]::Add($credPtr, $packedCredRaw.AuthData.CredData.ByteArrayOffset)
+                [System.Runtime.InteropServices.Marshal]::Copy($credDataPtr, $credData, 0, $credData.Length)
+            }
+
+            $packedCred.Raw = Format-Pointer $credPtr PSEC_WINNT_AUTH_PACKED_CREDENTIALS
+            $packedCred.HeaderLength = $packedCredRaw.cbHeaderLength
+            $packedCred.StructureLength = $packedCredRaw.cbStructureLength
+            $packedCred.AuthData = [Ordered]@{
+                CredType = $credType
+                CredData = [Ordered]@{
+                    Offset = $packedCredRaw.AuthData.CredData.ByteArrayOffset
+                    Length = $packedCredRaw.AuthData.CredData.ByteArrayLength
+                    Raw = Format-Pointer $credDataPtr
+                    Value = [Convert]::ToHexString($credData)
+                }
+            }
+        }
+        else {
+            $packedCred.Raw = Format-Pointer ([IntPtr]::Zero)
         }
 
         $res = [Ordered]@{
@@ -255,11 +321,11 @@ Function Get-WinNTAuthIdentityData {
             Version = Format-Enum $cred.Version
             HeaderLength = $cred.cbHeaderLength
             StructureLength = $cred.cbStructureLength
-            # User = &$stringUnpack $cred.User $cred.UserLength
-            # Domain = &$stringUnpack $cred.Domain $cred.DomainLength
-            # PackedCredentials = &$stringUnpack $cred.Password $cred.PasswordLength
+            User = &$getStringValue $cred.UserOffset $cred.UserLength
+            Domain = &$getStringValue $cred.DomainOffset $cred.DomainLength
+            PackedCredentials = $packedCred
             Flags = Format-Enum $cred.Flags ([Secur32.WinNTAuthIdentityFlags])
-            # PackageList = &$stringUnpack $cred.PackageList $cred.PackageListLength
+            PackageList = &$getStringValue $cred.PackageListOffset $cred.PackageLength
         }
     }
     else {
