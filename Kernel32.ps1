@@ -1,6 +1,7 @@
 Function Get-SecurityAttributes {
     [CmdletBinding()]
     param(
+        [object]$State,
         [IntPtr]$Raw
     )
 
@@ -13,7 +14,7 @@ Function Get-SecurityAttributes {
 
         $sd = $null
         if ($sa.lpSecurityDescriptor -ne [IntPtr]::Zero) {
-            $getLengthMeth = Get-PInvokeMethod Advapi32 GetSecurityDescriptorLength
+            $getLengthMeth = Get-PInvokeMethod $State Advapi32 GetSecurityDescriptorLength
 
             $sdLength = $getLengthMeth.Invoke($sa.lpSecurityDescriptor)
 
@@ -41,6 +42,7 @@ Function Get-SecurityAttributes {
 Function Get-StartupInfo {
     [CmdletBinding()]
     param(
+        [Object]$State,
         [IntPtr]$Raw,
         [switch]$IsExtended
     )
@@ -98,7 +100,7 @@ Function Get-StartupInfo {
         $res.StdOutput = Format-Pointer $si.hStdOutput HANDLE
         $res.StdError = Format-Pointer $si.hStdError HANDLE
 
-        $res.AttributeList = Get-ProcThreadAttributeList $attrList
+        $res.AttributeList = Get-ProcThreadAttributeList $State $attrList
     }
 
     $res
@@ -107,6 +109,7 @@ Function Get-StartupInfo {
 Function Get-ProcThreadAttributeList {
     [CmdletBinding()]
     param(
+        [object]$State,
         [IntPtr]$Raw,
         [int]$StartupInfoSize
     )
@@ -153,7 +156,7 @@ Function Get-ProcThreadAttributeList {
                 ) {
                     $handle = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($attr.Value)
 
-                    $methInfo = Get-PInvokeMethod Kernel32 GetProcessId
+                    $methInfo = Get-PInvokeMethod $State Kernel32 GetProcessId
 
                     # This will be 0 if the handle doesn't have the required rights, nothing
                     # we can do about that.
@@ -308,13 +311,13 @@ New-PSDetourHook -DllName Kernel32.dll -MethodName CreateProcessAsUserW {
             Token = Format-Pointer $Token HANDLE
             ApplicationName = Format-WideString $ApplicationName
             CommandLine = Format-WideString $CommandLine
-            ProcessAttributes = Get-SecurityAttributes $ProcessAttributes
-            Threadattributes = Get-SecurityAttributes $ThreadAttributes
+            ProcessAttributes = Get-SecurityAttributes $this $ProcessAttributes
+            Threadattributes = Get-SecurityAttributes $this $ThreadAttributes
             InheritHandles = $InheritHandles
             CreationFlags = Format-Enum $CreationFlags ([Kernel32.ProcessCreationFlags])
             Environment = Get-ProcessEnvironment $Environment -UnicodeEnvironment:$unicodeEnv
             CurrentDirectory = Format-WideString $CurrentDirectory
-            StartupInfo = Get-StartupInfo $StartupInfo -IsExtended:$isExtended
+            StartupInfo = Get-StartupInfo $this $StartupInfo -IsExtended:$isExtended
             ProcessInformation = Format-Pointer $ProcessInformation LPPROCESS_INFORMATION
         })
 
@@ -379,13 +382,13 @@ New-PSDetourHook -DllName api-ms-win-core-processthreads-l1-1-0 -MethodName Crea
     Write-FunctionCall -Arguments ([Ordered]@{
             ApplicationName = Format-WideString $ApplicationName
             CommandLine = Format-WideString $CommandLine
-            ProcessAttributes = Get-SecurityAttributes $ProcessAttributes
-            Threadattributes = Get-SecurityAttributes $ThreadAttributes
+            ProcessAttributes = Get-SecurityAttributes $this $ProcessAttributes
+            Threadattributes = Get-SecurityAttributes $this $ThreadAttributes
             InheritHandles = $InheritHandles
             CreationFlags = Format-Enum $CreationFlags ([Kernel32.ProcessCreationFlags])
             Environment = Get-ProcessEnvironment $Environment -UnicodeEnvironment:$unicodeEnv
             CurrentDirectory = Format-WideString $CurrentDirectory
-            StartupInfo = Get-StartupInfo $StartupInfo -IsExtended:$isExtended
+            StartupInfo = Get-StartupInfo $this $StartupInfo -IsExtended:$isExtended
             ProcessInformation = Format-Pointer $ProcessInformation LPPROCESS_INFORMATION
         })
 
@@ -459,7 +462,7 @@ New-PSDetourHook -DllName api-ms-win-security-cpwl-l1-1-0.dll -MethodName Create
             CreationFlags = Format-Enum $CreationFlags ([Kernel32.ProcessCreationFlags])
             Environment = Get-ProcessEnvironment $Environment -UnicodeEnvironment:$unicodeEnv
             CurrentDirectory = Format-WideString $CurrentDirectory
-            StartupInfo = Get-StartupInfo $StartupInfo -IsExtended:$isExtended
+            StartupInfo = Get-StartupInfo $this $StartupInfo -IsExtended:$isExtended
             ProcessInformation = Format-Pointer $ProcessInformation LPPROCESS_INFORMATION
         })
 
@@ -527,7 +530,7 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName CreateProcessWithTokenW {
             CreationFlags = Format-Enum $CreationFlags ([Kernel32.ProcessCreationFlags])
             Environment = Get-ProcessEnvironment $Environment -UnicodeEnvironment:$unicodeEnv
             CurrentDirectory = Format-WideString $CurrentDirectory
-            StartupInfo = Get-StartupInfo $StartupInfo -IsExtended:$isExtended
+            StartupInfo = Get-StartupInfo $this $StartupInfo -IsExtended:$isExtended
             ProcessInformation = Format-Pointer $ProcessInformation LPPROCESS_INFORMATION
         })
 

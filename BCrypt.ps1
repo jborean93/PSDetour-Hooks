@@ -240,7 +240,7 @@ New-PSDetourHook -DllName BCrypt.dll -MethodName BCryptSecretAgreement {
     $outLengthPtr = $secretValue = [IntPtr]::Zero
     try {
         $outLengthPtr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal(4)
-        $methInfo = Get-PInvokeMethod BCrypt BCryptDeriveKey
+        $methInfo = Get-PInvokeMethod $this BCrypt BCryptDeriveKey
 
         $null = $methInfo.Invoke(
             $secretPtr,
