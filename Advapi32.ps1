@@ -316,6 +316,79 @@ New-PSDetourHook -DllName Advapi32.dll -MethodName LogonUserW {
     $res
 }
 
+# This is in Sspicli.dll but it shares a lot of common structs with the others so is defined here
+New-PSDetourHook -DllName Sspicli.dll -MethodName LogonUserExExW {
+    [OutputType([bool])]
+    param (
+        [IntPtr]$UserName,
+        [IntPtr]$Domain,
+        [IntPtr]$Password,
+        [int]$LogonType,
+        [int]$LogonProvider,
+        [IntPtr]$TokenGroups,
+        [IntPtr]$Token,
+        [IntPtr]$LogonSid,
+        [IntPtr]$ProfileBuffer,
+        [IntPtr]$ProfileLength,
+        [IntPtr]$QuotaLimits
+    )
+
+    <#
+    BOOL WINAPI LogonUserExExW(
+        _In_      LPTSTR        lpszUsername,
+        _In_opt_  LPTSTR        lpszDomain,
+        _In_opt_  LPTSTR        lpszPassword,
+        _In_      DWORD         dwLogonType,
+        _In_      DWORD         dwLogonProvider,
+        _In_opt_  PTOKEN_GROUPS pTokenGroups,
+        _Out_opt_ PHANDLE       phToken,
+        _Out_opt_ PSID          *ppLogonSid,
+        _Out_opt_ PVOID         *ppProfileBuffer,
+        _Out_opt_ LPDWORD       pdwProfileLength,
+        _Out_opt_ PQUOTA_LIMITS pQuotaLimits
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        UserName = Format-WideString $UserName
+        Domain = Format-WideString $Domain
+        Password = Format-WideString $Password
+        LogonType = Format-Enum $LogonType ([Advapi32.LogonType])
+        LogonProvider = Format-Enum $LogonProvider ([Advapi32.LogonProvider])
+        TokenGroups = Format-Pointer $TokenGroups PTOKEN_GROUPS
+        Token = Format-Pointer $Token PHANDLE
+        LogonSid = Format-Pointer $LogonSid PSID
+        ProfileBuffer = Format-Pointer $ProfileBuffer PVOID
+        ProfileLength = Format-Pointer $ProfileLength LPDWORD
+        QuotaLimits = Format-Pointer $QuotaLimits PQUOTA_LIMITS
+    })
+    $res = $this.Invoke(
+        $UserName,
+        $Domain,
+        $Password,
+        $LogonType,
+        $LogonProvider,
+        $TokenGroups,
+        $Token,
+        $LogonSid,
+        $ProfileBuffer,
+        $ProfileLength,
+        $QuotaLimits); $lastError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+
+    $tokenRes = $null
+    if ($Token -ne [IntPtr]::Zero) {
+        $tokenRes = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($Token)
+    }
+    Write-FunctionResult -Result $res ([ordered]@{
+        Token = Format-Pointer $tokenRes HANDLE
+        LogonSid = ''
+        ProfileBuffer = ''
+        QuotaLimits = ''
+    }) $lastError
+
+    $res
+}
+
 New-PSDetourHook -DllName Advapi32.dll -MethodName OpenSCManagerW {
     [OutputType([IntPtr])]
     param (
