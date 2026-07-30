@@ -731,3 +731,69 @@ New-PSDetourHook -DllName api-ms-win-core-synch-l1-2-0.dll -MethodName Sleep -Ac
     $this.Invoke($Milliseconds)
     Write-FunctionResult -Result $null
 }
+
+New-PSDetourHook -DllName api-ms-win-core-console-l1-1-0.dll -MethodName GetConsoleMode -Action {
+    [OutputType([bool])]
+    param(
+        [IntPtr]$ConsoleHandle,
+        [IntPtr]$Mode
+    )
+
+    <#
+    BOOL WINAPI GetConsoleMode(
+        _In_  HANDLE  hConsoleHandle,
+        _Out_ LPDWORD lpMode
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        ConsoleHandle = Format-Pointer $ConsoleHandle HANDLE
+        Mode = Format-Pointer $Mode LPDWORD
+    })
+
+    $res = $this.Invoke(
+        $ConsoleHandle,
+        $Mode)
+
+    $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+
+    $modeInfo = [Ordered]@{}
+    if ($res) {
+        $modeValue = [System.Runtime.InteropServices.Marshal]::ReadInt32($Mode)
+        $modeInfo.InputMode = Format-Enum $modeValue ([Kernel32.ConsoleInputMode])
+        $modeInfo.OutputMode = Format-Enum $modeValue ([Kernel32.ConsoleOutputMode])
+    }
+    Write-FunctionResult -Result $res -LastError $err -Info $modeInfo
+
+    $res
+}
+
+New-PSDetourHook -DllName api-ms-win-core-console-l1-1-0.dll -MethodName SetConsoleMode -Action {
+    [OutputType([bool])]
+    param(
+        [IntPtr]$ConsoleHandle,
+        [int]$Mode
+    )
+
+    <#
+    BOOL WINAPI SetConsoleMode(
+        _In_ HANDLE hConsoleHandle,
+        _In_ DWORD  dwMode
+    );
+    #>
+
+    Write-FunctionCall -Arguments ([Ordered]@{
+        ConsoleHandle = Format-Pointer $ConsoleHandle HANDLE
+        InputMode = Format-Enum $Mode ([Kernel32.ConsoleInputMode])
+        OutputMode = Format-Enum $Mode ([Kernel32.ConsoleOutputMode])
+    })
+
+    $res = $this.Invoke(
+        $ConsoleHandle,
+        $Mode)
+
+    $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    Write-FunctionResult -Result $res -LastError $err
+
+    $res
+}

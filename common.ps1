@@ -28,8 +28,38 @@ Function Format-Enum {
         [Type]$EnumType
     )
 
+    if ($Value -is [Enum]) {
+        $EnumType = $Value.GetType()
+    }
+
+    [bool]$isFlags = $false
+    if ($EnumType) {
+        $isFlags = $EnumType.GetCustomAttributes([FlagsAttribute], $false)
+    }
+
     $valueStr = if ($Value -is [Enum]) {
         " - $Value"
+    }
+    elseif ($EnumType -and $isFlags) {
+        $validMask = 0
+        [Enum]::GetValues($EnumType) | ForEach-Object {
+            $validMask = $validMask -bor ([int]$_)
+        }
+
+        $flagValues = ($Value -band $validMask) -as $EnumType
+        $extraValues = $Value -band (-bnot $validMask)
+
+        $enumValues = [string[]]@(
+            if ($flagValues -ne 0 -or $extraValues -eq 0) {
+                $flagValues -split ', '
+            }
+
+            if ($extraValues) {
+                "0x{0:X8}" -f $extraValues
+            }
+        )
+
+        " - $($enumValues -join ", ")"
     }
     elseif ($EnumType -and $null -ne ($Value -as $EnumType)) {
         " - $($Value -as $EnumType)"
